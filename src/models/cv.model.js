@@ -9,6 +9,9 @@ const cvSchema = new mongoose.Schema({
   data: { type: Buffer, required: true, select: false },
   extractionStatus: { type: String, enum: ["pending", "processing", "completed", "failed"], default: "pending" },
   extractionError: { type: String, default: "", maxlength: 300 },
+  extractionStartedAt: { type: Date, default: null },
+  extractedProfile: { type: mongoose.Schema.Types.Mixed, default: undefined },
+  extractedAt: { type: Date, default: null },
 }, { timestamps: true });
 
 cvSchema.index({ userId: 1, name: 1 });

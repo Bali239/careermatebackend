@@ -6,6 +6,7 @@ import Profile from "../models/profile.model.js";
 import CV from "../models/cv.model.js";
 import { requireAuth } from "../middleware/auth.middleware.js";
 import { httpError } from "../utils/http-error.js";
+import { queueUnprocessedCVs, rebuildUserProfile } from "../services/profile-extraction.service.js";
 
 const router = Router();
 const text = z.string().trim().max(5000);
@@ -16,10 +17,11 @@ const certificationSchema = z.object({ name: text, issuer: text, issueDate: text
 const projectSchema = z.object({ name: text, role: text, description: text, url: text, technologies: z.array(text).max(40) });
 const languageSchema = z.object({ name: text, proficiency: text });
 const awardSchema = z.object({ name: text, issuer: text, date: text, description: text });
+const customSectionsSchema = z.array(z.object({ title: z.string().trim().min(1).max(100), fields: z.array(z.object({ label: z.string().trim().min(1).max(100), value: text })).max(30) })).max(30);
 const profileSchema = z.object({
   contact: contactSchema, headline: text, summary: text,
   skills: z.array(text).max(100), experience: z.array(experienceSchema).max(50), education: z.array(educationSchema).max(50),
-  certifications: z.array(certificationSchema).max(50), projects: z.array(projectSchema).max(50), languages: z.array(languageSchema).max(30), awards: z.array(awardSchema).max(50), interests: z.array(text).max(50),
+  certifications: z.array(certificationSchema).max(50), projects: z.array(projectSchema).max(50), languages: z.array(languageSchema).max(30), awards: z.array(awardSchema).max(50), interests: z.array(text).max(50), customSections: customSectionsSchema.default([]),
 });
 
 router.use(requireAuth);
@@ -29,13 +31,14 @@ const responseProfile = (record, user) => {
   const base = emptyProfile(user);
   if (!record) return { ...base, lastExtractedAt: null, manuallyEdited: false, updatedAt: null };
   const result = record.toObject ? record.toObject() : record;
-  return { ...base, ...result, id: String(result._id), _id: undefined, __v: undefined };
+  return { ...base, ...result, id: String(result._id), _id: undefined, __v: undefined, manualOverrides: undefined, legacyProtected: undefined, manualOverridesInitialized: undefined };
 };
 
 router.get("/", async (req, res) => {
+  await queueUnprocessedCVs(req.authUser._id);
   const [profile, recentCVs] = await Promise.all([
     Profile.findOne({ userId: req.authUser._id }),
-    CV.find({ userId: req.authUser._id }).sort({ createdAt: -1 }).limit(10).select("name extractionStatus extractionError createdAt").lean(),
+    CV.find({ userId: req.authUser._id }).sort({ createdAt: -1 }).limit(30).select("name extractionStatus extractionError createdAt extractedProfile").lean(),
   ]);
   res.json({ status: "ok", data: { profile: responseProfile(profile, req.authUser), extraction: recentCVs.map((cv) => ({ id: String(cv._id), name: cv.name, status: cv.extractionStatus ?? "failed", error: cv.extractionError || (cv.extractionStatus ? "" : "This CV has not been processed yet."), createdAt: cv.createdAt })) } });
 });
@@ -43,7 +46,47 @@ router.get("/", async (req, res) => {
 router.put("/", async (req, res) => {
   const parsed = profileSchema.safeParse(req.body);
   if (!parsed.success) throw httpError(400, "Profile details are invalid");
-  const profile = await Profile.findOneAndUpdate({ userId: req.authUser._id }, { $set: { ...parsed.data, manuallyEdited: true }, $setOnInsert: { userId: req.authUser._id } }, { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true });
+  await rebuildUserProfile(req.authUser._id, async () => {
+  const current = await Profile.findOne({ userId: req.authUser._id }).lean();
+  const before = responseProfile(current, req.authUser);
+  const overrides = current?.manualOverrides ?? { scalars: {}, items: {}, removedItems: {}, customSections: [], removedCustomFields: [] };
+  overrides.scalars ??= {}; overrides.items ??= {}; overrides.removedItems ??= {}; overrides.customSections ??= []; overrides.removedCustomFields ??= [];
+  const normalized = (value) => String(value ?? "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
+  const scalarPaths = ["contact.fullName", "contact.email", "contact.phone", "contact.location", "contact.website", "contact.linkedin", "contact.github", "headline", "summary"];
+  const getPath = (object, path) => path.split(".").reduce((value, key) => value?.[key], object);
+  for (const path of scalarPaths) if (getPath(before, path) !== getPath(parsed.data, path)) overrides.scalars[path] = getPath(parsed.data, path);
+  const listKeys = ["skills", "interests", "experience", "education", "certifications", "projects", "languages", "awards"];
+  const itemIdentity = (key, item) => {
+    if (key === "skills" || key === "interests") return normalized(item);
+    const fields = { experience: ["jobTitle", "company", "startDate"], education: ["institution", "degree", "field", "endDate"], certifications: ["name", "issuer"], projects: ["name"], languages: ["name"], awards: ["name", "issuer", "date"] }[key];
+    return fields.map((field) => normalized(item[field])).join("|");
+  };
+  for (const key of listKeys) {
+    overrides.items[key] ??= {};
+    overrides.removedItems[key] ??= [];
+    const oldItems = new Map((before[key] ?? []).map((item) => [itemIdentity(key, item), item]));
+    const newItems = new Map((parsed.data[key] ?? []).map((item) => [itemIdentity(key, item), item]));
+    for (const [id, item] of newItems) {
+      overrides.removedItems[key] = overrides.removedItems[key].filter((removedId) => removedId !== id);
+      if (!oldItems.has(id) || JSON.stringify(oldItems.get(id)) !== JSON.stringify(item)) overrides.items[key][id] = item;
+    }
+    for (const id of oldItems.keys()) if (!newItems.has(id)) { overrides.removedItems[key].push(id); delete overrides.items[key][id]; }
+    overrides.removedItems[key] = [...new Set(overrides.removedItems[key])];
+  }
+  const sectionFields = new Map();
+  for (const section of parsed.data.customSections) for (const field of section.fields) sectionFields.set(`${normalized(section.title)}|${normalized(field.label)}`, { title: section.title, ...field });
+  const existingSections = new Map();
+  for (const section of before.customSections ?? []) for (const field of section.fields ?? []) existingSections.set(`${normalized(section.title)}|${normalized(field.label)}`, { title: section.title, ...field });
+  overrides.customSections = [...sectionFields.values()];
+  const customFieldId = (field) => `${normalized(field.title)}|${normalized(field.label)}`;
+  const removedCustomFields = new Map((overrides.removedCustomFields ?? []).map((field) => [customFieldId(field), field]));
+  for (const [id, field] of existingSections) if (!sectionFields.has(id)) removedCustomFields.set(id, { title: field.title, label: field.label });
+  for (const id of sectionFields.keys()) removedCustomFields.delete(id);
+  overrides.removedCustomFields = [...removedCustomFields.values()];
+  const legacyProtected = current?.legacyProtected ?? (!current?.manualOverridesInitialized && current ? Object.fromEntries([...scalarPaths, ...listKeys, "customSections"].map((path) => [path, getPath(current, path)])) : null);
+  await Profile.updateOne({ userId: req.authUser._id }, { $set: { ...parsed.data, manualOverrides: overrides, legacyProtected, manuallyEdited: true, manualOverridesInitialized: true }, $setOnInsert: { userId: req.authUser._id } }, { upsert: true, runValidators: true });
+  });
+  const profile = await Profile.findOne({ userId: req.authUser._id });
   res.json({ status: "ok", data: responseProfile(profile, req.authUser) });
 });
 
@@ -65,6 +108,7 @@ function profileLines(profile) {
   for (const item of profile.languages ?? []) add("Languages", `${item.name || ""}${item.proficiency ? ` — ${item.proficiency}` : ""}`);
   for (const item of profile.awards ?? []) add("Awards", `${item.name || ""}${item.issuer ? ` — ${item.issuer}` : ""}${item.date ? ` (${item.date})` : ""}\n${item.description || ""}`);
   add("Interests", (profile.interests ?? []).join(" · "));
+  for (const section of profile.customSections ?? []) add(section.title, (section.fields ?? []).map((field) => `${field.label}: ${field.value}`).join("\n"));
   return lines;
 }
 

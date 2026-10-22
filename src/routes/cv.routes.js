@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import CV from "../models/cv.model.js";
 import { requireAuth } from "../middleware/auth.middleware.js";
 import { httpError } from "../utils/http-error.js";
-import { extractCVProfile } from "../services/profile-extraction.service.js";
+import { extractCVProfile, rebuildUserProfile } from "../services/profile-extraction.service.js";
 
 const router = Router();
 const allowedTypes = new Set([
@@ -51,7 +51,8 @@ router.post("/:id/extract", async (req, res) => {
   const cv = await CV.findOne({ _id: req.params.id, userId: req.authUser._id });
   if (!cv) throw httpError(404, "CV not found");
   if (cv.extractionStatus === "processing") throw httpError(409, "CV is already being processed");
-  await CV.updateOne({ _id: cv._id }, { $set: { extractionStatus: "pending", extractionError: "" } });
+  const queued = await CV.updateOne({ _id: cv._id, userId: req.authUser._id, extractionStatus: { $ne: "processing" } }, { $set: { extractionStatus: "pending", extractionError: "" } });
+  if (!queued.modifiedCount) throw httpError(409, "CV is already being processed");
   void extractCVProfile(cv._id, req.authUser._id);
   res.status(202).json({ status: "ok", message: "CV processing started" });
 });
@@ -68,6 +69,7 @@ router.delete("/:id", async (req, res) => {
   if (!mongoose.isValidObjectId(req.params.id)) throw httpError(404, "CV not found");
   const cv = await CV.findOneAndDelete({ _id: req.params.id, userId: req.authUser._id });
   if (!cv) throw httpError(404, "CV not found");
+  await rebuildUserProfile(req.authUser._id);
   res.json({ status: "ok", message: "CV deleted" });
 });
 

@@ -13,6 +13,10 @@ const profileSchema = new mongoose.Schema({
   languages: { type: [mongoose.Schema.Types.Mixed], default: [] },
   awards: { type: [mongoose.Schema.Types.Mixed], default: [] },
   interests: { type: [String], default: [] },
+  customSections: { type: [mongoose.Schema.Types.Mixed], default: [] },
+  manualOverrides: { type: mongoose.Schema.Types.Mixed, default: () => ({ scalars: {}, items: {}, removedItems: {} }) },
+  legacyProtected: { type: mongoose.Schema.Types.Mixed, default: null },
+  manualOverridesInitialized: { type: Boolean, default: false },
   manuallyEdited: { type: Boolean, default: false },
   lastExtractedAt: { type: Date, default: null },
 }, { timestamps: true, minimize: false });
