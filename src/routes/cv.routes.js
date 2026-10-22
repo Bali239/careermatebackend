@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import CV from "../models/cv.model.js";
 import { requireAuth } from "../middleware/auth.middleware.js";
 import { httpError } from "../utils/http-error.js";
+import { extractCVProfile } from "../services/profile-extraction.service.js";
 
 const router = Router();
 const allowedTypes = new Set([
@@ -10,7 +11,7 @@ const allowedTypes = new Set([
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
-const metadata = (cv) => ({ id: cv.id, name: cv.name, fileName: cv.fileName, contentType: cv.contentType, size: cv.size, createdAt: cv.createdAt });
+const metadata = (cv) => ({ id: cv.id, name: cv.name, fileName: cv.fileName, contentType: cv.contentType, size: cv.size, extractionStatus: cv.extractionStatus, extractionError: cv.extractionError, createdAt: cv.createdAt });
 
 router.use(requireAuth);
 
@@ -21,8 +22,8 @@ router.get("/", async (req, res) => {
     const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     filter.$or = [{ name: { $regex: escaped, $options: "i" } }, { fileName: { $regex: escaped, $options: "i" } }];
   }
-  const cvs = await CV.find(filter).sort({ createdAt: -1 }).select("name fileName contentType size createdAt").lean();
-  res.json({ status: "ok", data: cvs.map((cv) => ({ ...cv, id: String(cv._id), _id: undefined })) });
+  const cvs = await CV.find(filter).sort({ createdAt: -1 }).select("name fileName contentType size extractionStatus extractionError createdAt").lean();
+  res.json({ status: "ok", data: cvs.map((cv) => ({ ...cv, extractionStatus: cv.extractionStatus ?? "failed", extractionError: cv.extractionError ?? "", id: String(cv._id), _id: undefined })) });
 });
 
 router.post("/", async (req, res) => {
@@ -40,8 +41,19 @@ router.post("/", async (req, res) => {
   if ((contentType === "application/pdf" && !isPdf) || (contentType === "application/msword" && !isDoc) || (contentType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" && !isZip)) {
     throw httpError(400, "The selected file does not match its document type");
   }
-  const cv = await CV.create({ userId: req.authUser._id, name, fileName, contentType, size: data.length, data });
+  const cv = await CV.create({ userId: req.authUser._id, name, fileName, contentType, size: data.length, data, extractionStatus: "pending" });
   res.status(201).json({ status: "ok", data: metadata(cv) });
+  void extractCVProfile(cv._id, req.authUser._id);
+});
+
+router.post("/:id/extract", async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) throw httpError(404, "CV not found");
+  const cv = await CV.findOne({ _id: req.params.id, userId: req.authUser._id });
+  if (!cv) throw httpError(404, "CV not found");
+  if (cv.extractionStatus === "processing") throw httpError(409, "CV is already being processed");
+  await CV.updateOne({ _id: cv._id }, { $set: { extractionStatus: "pending", extractionError: "" } });
+  void extractCVProfile(cv._id, req.authUser._id);
+  res.status(202).json({ status: "ok", message: "CV processing started" });
 });
 
 router.get("/:id/file", async (req, res) => {

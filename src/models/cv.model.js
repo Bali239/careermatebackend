@@ -7,6 +7,8 @@ const cvSchema = new mongoose.Schema({
   contentType: { type: String, required: true, enum: ["application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"] },
   size: { type: Number, required: true },
   data: { type: Buffer, required: true, select: false },
+  extractionStatus: { type: String, enum: ["pending", "processing", "completed", "failed"], default: "pending" },
+  extractionError: { type: String, default: "", maxlength: 300 },
 }, { timestamps: true });
 
 cvSchema.index({ userId: 1, name: 1 });

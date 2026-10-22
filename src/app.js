@@ -8,6 +8,7 @@ import { errorHandler, notFoundHandler } from "./middleware/error.middleware.js"
 import healthRoutes from "./routes/health.routes.js";
 import authRoutes from "./routes/auth.routes.js";
 import cvRoutes from "./routes/cv.routes.js";
+import profileRoutes from "./routes/profile.routes.js";
 
 const app = express();
 
@@ -30,6 +31,7 @@ app.use(
 app.use("/api/v1", healthRoutes);
 app.use("/api/v1/auth", authRoutes);
 app.use("/api/v1/cvs", cvRoutes);
+app.use("/api/v1/profile", profileRoutes);
 // Keep the original OAuth callback URL working for Google clients already
 // configured with /api/auth/google/callback. New setups should use /api/v1.
 app.use("/api/auth", authRoutes);

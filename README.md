@@ -62,7 +62,7 @@ For Gmail API authorization, consent the dedicated sender Gmail account with the
 
 ## Environment variables
 
-`NODE_ENV`, `PORT`, `CLIENT_URL`, `MONGODB_URI`, and `JWT_ACCESS_SECRET` are configured in `.env.example`. Google OAuth and Gmail API credentials are needed for the corresponding authentication and email flows. `GEMINI_API_KEY` remains optional for future AI features.
+`NODE_ENV`, `PORT`, `CLIENT_URL`, `MONGODB_URI`, and `JWT_ACCESS_SECRET` are configured in `.env.example`. Configure `GEMINI_API_KEY` to automatically extract profile details from uploaded CVs. Google OAuth and Gmail API credentials are needed for the corresponding authentication and email flows.
 
 ## Troubleshooting
 
