@@ -10,7 +10,9 @@ const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.string().optional(),
-  GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
+  GMAIL_SENDER_EMAIL: z.union([z.string().email(), z.literal("")]).optional(),
+  GMAIL_REFRESH_TOKEN: z.string().optional(),
+  JWT_ACCESS_SECRET: z.string().min(32, "must contain at least 32 characters"),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);
