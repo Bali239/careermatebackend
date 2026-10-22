@@ -26,6 +26,9 @@ app.use(
 
 app.use("/api/v1", healthRoutes);
 app.use("/api/v1/auth", authRoutes);
+// Keep the original OAuth callback URL working for Google clients already
+// configured with /api/auth/google/callback. New setups should use /api/v1.
+app.use("/api/auth", authRoutes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 

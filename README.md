@@ -18,7 +18,7 @@ cp .env.example .env
 Update `.env` before starting the server:
 
 - Set `JWT_ACCESS_SECRET` to a unique random value of at least 32 characters (`openssl rand -hex 32` is one way to generate it).
-- Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` for Google sign-in. Register `http://localhost:5000/api/v1/auth/google/callback` as an authorized redirect URI for local development.
+- Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` for Google sign-in. For new setups, use and register `http://localhost:5000/api/v1/auth/google/callback` as an authorized redirect URI. The server also accepts the legacy `http://localhost:5000/api/auth/google/callback` path so existing OAuth clients keep working; the exact URI used in Google Cloud Console must match `GOOGLE_REDIRECT_URI`.
 - Enable the Gmail API and configure `GMAIL_SENDER_EMAIL` and `GMAIL_REFRESH_TOKEN` for the app-owned sender account. The refresh token must have the `https://www.googleapis.com/auth/gmail.send` scope. Keep all these values server-side.
 - Set `MONGODB_URI` if your MongoDB connection differs from the local default.
 
