@@ -3,7 +3,8 @@ import mongoose from "mongoose";
 import CV from "../models/cv.model.js";
 import { requireAuth } from "../middleware/auth.middleware.js";
 import { httpError } from "../utils/http-error.js";
-import { extractCVProfile, rebuildUserProfile } from "../services/profile-extraction.service.js";
+import { extractCVProfile } from "../services/cv-extraction.service.js";
+import { rebuildUserProfile } from "../services/profile-rebuild.service.js";
 
 const router = Router();
 const allowedTypes = new Set([

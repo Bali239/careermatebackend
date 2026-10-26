@@ -6,7 +6,8 @@ import CV from "../models/cv.model.js";
 import { profileSchema } from "../schemas/profile.schema.js";
 import { requireAuth } from "../middleware/auth.middleware.js";
 import { httpError } from "../utils/http-error.js";
-import { queueUnprocessedCVs, rebuildUserProfile } from "../services/profile-extraction.service.js";
+import { queueUnprocessedCVs } from "../services/cv-extraction.service.js";
+import { rebuildUserProfile } from "../services/profile-rebuild.service.js";
 
 const router = Router();
 
