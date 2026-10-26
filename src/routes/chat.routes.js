@@ -115,4 +115,23 @@ router.post("/:id/exit-edit", async (req, res) => {
   res.json({ status: "ok", data: serializeChat(conversation.toObject()) });
 });
 
+router.delete("/:id", async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) throw httpError(404, "Conversation not found");
+  const deleted = await Chat.findOneAndDelete({ _id: req.params.id, userId: req.authUser._id });
+  if (!deleted) throw httpError(404, "Conversation not found");
+  res.json({ status: "ok", data: { id: String(deleted._id) } });
+});
+
+router.patch("/:id", async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) throw httpError(404, "Conversation not found");
+  const conversation = await Chat.findOne({ _id: req.params.id, userId: req.authUser._id });
+  if (!conversation) throw httpError(404, "Conversation not found");
+  if (typeof req.body?.title === "string" && req.body.title.trim()) {
+    conversation.title = req.body.title.trim();
+  }
+  conversation.updatedAt = new Date();
+  await conversation.save();
+  res.json({ status: "ok", data: serializeChat(conversation.toObject()) });
+});
+
 export default router;
