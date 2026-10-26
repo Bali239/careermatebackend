@@ -1,10 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
-import { z } from "zod";
 import { env } from "../config/env.js";
 import AuthToken from "../models/auth-token.model.js";
 import User from "../models/user.model.js";
+import { exchangeSchema, forgotSchema, loginSchema, refreshSchema, resetSchema, signupSchema, tokenSchema } from "../schemas/auth.schema.js";
 import { requireAuth } from "../middleware/auth.middleware.js";
 import { validate } from "../middleware/validate.middleware.js";
 import { httpError } from "../utils/http-error.js";
@@ -15,13 +15,6 @@ const credentialLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 8, standa
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const opaque = () => randomBytes(32).toString("base64url");
 const normalizedEmail = (email) => email.trim().toLowerCase();
-const signupSchema = z.object({ name: z.string().trim().min(1).max(100), email: z.string().email().max(254), password: z.string().min(10).max(128) });
-const loginSchema = z.object({ email: z.string().email().max(254), password: z.string().min(1).max(128) });
-const tokenSchema = z.object({ token: z.string().min(32) });
-const forgotSchema = z.object({ email: z.string().email().max(254) });
-const resetSchema = z.object({ token: z.string().min(32), password: z.string().min(10).max(128) });
-const refreshSchema = z.object({ refreshToken: z.string().min(32) });
-const exchangeSchema = z.object({ handoffCode: z.string().min(32) });
 const oauthConfigured = () => {
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.GOOGLE_REDIRECT_URI) throw httpError(503, "Google sign-in is not configured");
 };

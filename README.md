@@ -64,6 +64,8 @@ For Gmail API authorization, consent the dedicated sender Gmail account with the
 
 `NODE_ENV`, `PORT`, `CLIENT_URL`, `MONGODB_URI`, and `JWT_ACCESS_SECRET` are configured in `.env.example`. Configure `GEMINI_API_KEY` to automatically extract profile details from uploaded CVs. Google OAuth and Gmail API credentials are needed for the corresponding authentication and email flows.
 
+Runtime configuration is handled in `src/config`; Zod request/environment validation and Mongoose schema definitions are in `src/schemas`; model registration is kept in `src/models`.
+
 ## Troubleshooting
 
 - **MongoDB connection fails:** Check that MongoDB is running and that `MONGODB_URI` is correct and reachable.
