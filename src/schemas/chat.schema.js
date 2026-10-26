@@ -25,4 +25,9 @@ export const analysisResponseSchema = z.object({
   keywords: z.array(z.string().trim().min(1).max(100)).max(50),
   tailoredSummary: z.string().min(1).max(3000),
   editableHtml: z.string().min(1).max(250000),
+  scoreBreakdown: z.array(z.object({
+    label: z.string().trim().min(1).max(80),
+    score: z.number().min(0).max(100),
+    note: z.string().trim().min(1).max(500),
+  })).max(5).default([]),
 });
