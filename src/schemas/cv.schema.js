@@ -26,6 +26,9 @@ export const cvSchema = new mongoose.Schema(
     extractedProfile: { type: mongoose.Schema.Types.Mixed, default: undefined },
     extractionResult: { type: mongoose.Schema.Types.Mixed, default: undefined },
     extractedAt: { type: Date, default: null },
+    extractedText: { type: String, default: null },
+    extractionMethod: { type: String, default: null },
+    textLength: { type: Number, default: 0 },
   },
   { timestamps: true }
 );

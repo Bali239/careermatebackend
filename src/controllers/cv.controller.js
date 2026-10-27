@@ -18,6 +18,7 @@ const metadata = (cv) => ({
   size: cv.size,
   extractionStatus: cv.extractionStatus,
   extractionError: cv.extractionError,
+  textLength: cv.textLength,
   createdAt: cv.createdAt,
 });
 
@@ -33,7 +34,7 @@ export const listCVs = async (req, res) => {
   }
   const cvs = await CV.find(filter)
     .sort({ createdAt: -1 })
-    .select('name fileName contentType size extractionStatus extractionError createdAt')
+    .select('name fileName contentType size extractionStatus extractionError textLength createdAt')
     .lean();
   res.json({
     status: 'ok',

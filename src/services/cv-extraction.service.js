@@ -61,10 +61,31 @@ export async function extractCVProfile(cvId, userId) {
     if (!claim.modifiedCount) return;
     const cv = await CV.findOne({ _id: cvId, userId }).select('+data');
     if (!cv) return;
+    if (cv.extractionStatus === 'completed' && cv.extractedText) {
+      return;
+    }
     const text = await extractDocumentText(cv);
-    const extracted = await extractProfileWithGemini(cv, text);
+    const usableText = text ?? '';
+    if (!usableText.trim()) {
+      const error = new Error('No usable text could be extracted from the document');
+      await CV.updateOne(
+        { _id: cvId, userId },
+        {
+          $set: {
+            extractionStatus: 'failed',
+            extractionError: error.message.slice(0, 300),
+            extractedText: null,
+            extractionMethod: null,
+            textLength: 0,
+          },
+          $unset: { extractionStartedAt: 1 },
+        }
+      );
+      throw error;
+    }
+    const extracted = await extractProfileWithGemini(cv, usableText);
 
-    // Save extraction result
+    // Save extraction result + extracted text
     const saved = await CV.updateOne(
       { _id: cvId, userId },
       {
@@ -74,6 +95,15 @@ export async function extractCVProfile(cvId, userId) {
           extractedAt: new Date(),
           extractionStatus: 'completed',
           extractionError: '',
+          extractedText: usableText,
+          extractionMethod:
+            cv.contentType ===
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+              ? 'mammoth'
+              : cv.contentType === 'application/msword'
+                ? 'word-extractor'
+                : 'pdf-parser',
+          textLength: usableText.length,
         },
         $unset: { extractionStartedAt: 1 },
       }

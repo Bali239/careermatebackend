@@ -97,11 +97,9 @@ export async function analyzeCVForJobDescription(cv, jobDescription, cvText) {
   const parts = [{ text: `JOB DESCRIPTION:\n${jobDescription.slice(0, 6000)}` }];
   const extractedText = typeof cvText === 'string' ? cvText.trim() : '';
 
-  if (extractedText) {
-    parts.push({ text: `CV TEXT:\n${extractedText.slice(0, 120000)}` });
-  } else if (cv?.data && cv.contentType) {
-    parts.push({ inlineData: { mimeType: cv.contentType, data: cv.data.toString('base64') } });
-  }
+  if (!extractedText) throw new Error('No usable CV text available for job analysis');
+
+  parts.push({ text: `CV TEXT:\n${extractedText.slice(0, 120000)}` });
 
   const answer = await geminiModels.cvAnalysis.generate(prompt, parts);
   if (!answer) throw new Error('Gemini did not return a job-fit analysis.');

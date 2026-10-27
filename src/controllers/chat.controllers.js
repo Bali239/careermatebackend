@@ -71,8 +71,13 @@ export const createChat = async (req, res) => {
   const { cvId, jobDescription, title } = parsed.data;
   if (!mongoose.isValidObjectId(cvId)) throw httpError(404, 'CV not found');
 
-  const cv = await CV.findOne({ _id: cvId, userId: req.authUser._id });
+  const cv = await CV.findOne({ _id: cvId, userId: req.authUser._id }).select('+data');
   if (!cv) throw httpError(404, 'CV not found');
+
+  // Ensure CV is ready for analysis
+  if (cv.extractionStatus !== 'completed') {
+    throw httpError(409, 'CV is not ready for analysis yet');
+  }
 
   const trimmedJobDescription = jobDescription.trim();
   const normalizedTitle = title?.trim() || `${cv.name} · ${trimmedJobDescription.slice(0, 50)}`;
@@ -90,8 +95,9 @@ export const createChat = async (req, res) => {
   }
 
   try {
-    const text = await extractDocumentText(cv);
-    const analysis = await analyzeCVForJobDescription(cv, trimmedJobDescription, text ?? '');
+    // Reuse stored extracted text; never re-extract
+    const storedText = cv.extractedText ?? null;
+    const analysis = await analyzeCVForJobDescription(cv, trimmedJobDescription, storedText ?? '');
 
     const conversation = await Chat.create({
       userId: req.authUser._id,
@@ -132,8 +138,12 @@ export const analyzeChat = async (req, res) => {
     return res.status(202).json({ status: 'ok', data: serializeChat(conversation.toObject()) });
   }
 
-  const cv = await CV.findOne({ _id: conversation.cvId, userId: req.authUser._id });
+  const cv = await CV.findOne({ _id: conversation.cvId, userId: req.authUser._id }).select('+data');
   if (!cv) throw httpError(404, 'CV not found');
+
+  if (cv.extractionStatus !== 'completed') {
+    throw httpError(409, 'CV is not ready for analysis yet');
+  }
 
   conversation.analysisStatus = 'processing';
   conversation.status = 'analyzing';
@@ -142,8 +152,8 @@ export const analyzeChat = async (req, res) => {
   await conversation.save();
 
   try {
-    const text = await extractDocumentText(cv);
-    const analysis = await analyzeCVForJobDescription(cv, conversation.jobDescription, text ?? '');
+    const text = cv.extractedText ?? '';
+    const analysis = await analyzeCVForJobDescription(cv, conversation.jobDescription, text);
 
     conversation.analysis = analysis;
     conversation.analysisStatus = 'completed';
@@ -153,7 +163,11 @@ export const analyzeChat = async (req, res) => {
     conversation.sourceCvName = cv.name;
     conversation.sourceCvFileName = cv.fileName;
 
-    if (!conversation.messages.some((message) => message.role === 'assistant' && message.text === analysis.summary)) {
+    if (
+      !conversation.messages.some(
+        (message) => message.role === 'assistant' && message.text === analysis.summary
+      )
+    ) {
       conversation.messages.push({ role: 'assistant', text: analysis.summary });
     }
 
@@ -190,7 +204,7 @@ export const rewriteChatCv = async (req, res) => {
   const cv = await CV.findOne({ _id: conversation.cvId, userId: req.authUser._id }).select('+data');
   if (!cv) throw httpError(404, 'CV not found');
 
-  const cvText = (await extractDocumentText(cv)) ?? '';
+  const cvText = cv.extractedText ?? '';
   const content = buildTailoredCvContent({
     fullName: req.authUser.name || 'Candidate',
     chat: conversation.toObject ? conversation.toObject() : conversation,
@@ -247,7 +261,8 @@ export const rewriteChatCv = async (req, res) => {
 
 export const downloadGeneratedCv = async (req, res) => {
   if (!mongoose.isValidObjectId(req.params.id)) throw httpError(404, 'Conversation not found');
-  if (!mongoose.isValidObjectId(req.params.versionId)) throw httpError(404, 'Generated CV not found');
+  if (!mongoose.isValidObjectId(req.params.versionId))
+    throw httpError(404, 'Generated CV not found');
 
   const conversation = await Chat.findOne({ _id: req.params.id, userId: req.authUser._id });
   if (!conversation) throw httpError(404, 'Conversation not found');
