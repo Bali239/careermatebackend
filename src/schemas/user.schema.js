@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import mongoose from 'mongoose';
 
 export const userSchema = new mongoose.Schema(
   {
@@ -9,5 +9,5 @@ export const userSchema = new mongoose.Schema(
     avatarUrl: { type: String, default: null },
     emailVerified: { type: Boolean, default: false },
   },
-  { timestamps: true },
+  { timestamps: true }
 );

@@ -1,7 +1,7 @@
-import { z } from "zod";
+import { z } from 'zod';
 
 export const envSchema = z.object({
-  NODE_ENV: z.enum(["development", "test", "production"]),
+  NODE_ENV: z.enum(['development', 'test', 'production']),
   PORT: z.coerce.number().int().min(1).max(65535),
   CLIENT_URL: z.string().url(),
   MONGODB_URI: z.string().min(1),
@@ -9,7 +9,7 @@ export const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.string().optional(),
-  GMAIL_SENDER_EMAIL: z.union([z.string().email(), z.literal("")]).optional(),
+  GMAIL_SENDER_EMAIL: z.union([z.string().email(), z.literal('')]).optional(),
   GMAIL_REFRESH_TOKEN: z.string().optional(),
-  JWT_ACCESS_SECRET: z.string().min(32, "must contain at least 32 characters"),
+  JWT_ACCESS_SECRET: z.string().min(32, 'must contain at least 32 characters'),
 });

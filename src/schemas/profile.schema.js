@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from 'zod';
 
 const text = z.string().trim().max(5000);
 const contactSchema = z.object({
@@ -45,13 +45,21 @@ const projectSchema = z.object({
 });
 const languageSchema = z.object({ name: text, proficiency: text });
 const awardSchema = z.object({ name: text, issuer: text, date: text, description: text });
-const customSectionsSchema = z.array(z.object({
-  title: z.string().trim().min(1).max(100),
-  fields: z.array(z.object({
-    label: z.string().trim().min(1).max(100),
-    value: text,
-  })).max(30),
-})).max(30);
+const customSectionsSchema = z
+  .array(
+    z.object({
+      title: z.string().trim().min(1).max(100),
+      fields: z
+        .array(
+          z.object({
+            label: z.string().trim().min(1).max(100),
+            value: text,
+          })
+        )
+        .max(30),
+    })
+  )
+  .max(30);
 
 export const profileSchema = z.object({
   contact: contactSchema,

@@ -1,5 +1,5 @@
-import { Router } from "express";
-import { requireAuth } from "../middleware/auth.middleware.js";
+import { Router } from 'express';
+import { requireAuth } from '../middleware/auth.middleware.js';
 import {
   listChats,
   getChat,
@@ -9,18 +9,18 @@ import {
   exitEditMode,
   deleteChat,
   updateChatTitle,
-} from "../controllers/chat.controllers.js";
+} from '../controllers/chat.controllers.js';
 
 const router = Router();
 router.use(requireAuth);
 
-router.get("/", listChats);
-router.get("/:id", getChat);
-router.post("/", createChat);
-router.post("/:id/messages", sendMessage);
-router.post("/:id/edit", editDraft);
-router.post("/:id/exit-edit", exitEditMode);
-router.delete("/:id", deleteChat);
-router.patch("/:id", updateChatTitle);
+router.get('/', listChats);
+router.get('/:id', getChat);
+router.post('/', createChat);
+router.post('/:id/messages', sendMessage);
+router.post('/:id/edit', editDraft);
+router.post('/:id/exit-edit', exitEditMode);
+router.delete('/:id', deleteChat);
+router.patch('/:id', updateChatTitle);
 
 export default router;
