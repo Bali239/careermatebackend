@@ -6,7 +6,6 @@ import {
   createChat,
   analyzeChat,
   rewriteChatCv,
-  downloadGeneratedCv,
   sendMessage,
   editDraft,
   exitEditMode,
@@ -22,7 +21,6 @@ router.get('/:id', getChat);
 router.post('/', createChat);
 router.post('/:id/analyze', analyzeChat);
 router.post('/:id/rewrite', rewriteChatCv);
-router.get('/:id/generated/:versionId/:format', downloadGeneratedCv);
 router.post('/:id/messages', sendMessage);
 router.post('/:id/edit', editDraft);
 router.post('/:id/exit-edit', exitEditMode);

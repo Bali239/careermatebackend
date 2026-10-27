@@ -6,9 +6,6 @@ import { chatCreateSchema, chatEditSchema, chatMessageSchema } from '../schemas/
 import { analyzeCVForJobDescription } from '../services/chat-analysis.service.js';
 import {
   buildTailoredCvContent,
-  createGeneratedDocumentBuffers,
-  readGeneratedCvFile,
-  writeGeneratedCvToDisk,
 } from '../services/cv-rewrite.service.js';
 import { extractDocumentText } from '../utils/cv-document-text.js';
 
@@ -214,8 +211,11 @@ export const rewriteChatCv = async (req, res) => {
   const versionId = new mongoose.Types.ObjectId();
   const baseVersion = {
     _id: versionId,
-    status: 'processing',
+    status: 'completed',
     filename: `${(conversation.title || 'tailored-cv').replace(/\s+/g, '-').toLowerCase()}.docx`,
+    docxFileName: `${(conversation.title || 'tailored-cv').replace(/\s+/g, '-').toLowerCase()}.docx`,
+    pdfFileName: `${(conversation.title || 'tailored-cv').replace(/\s+/g, '-').toLowerCase()}.pdf`,
+    summary: content.professionalSummary.slice(0, 2000),
     createdAt: new Date(),
     error: '',
   };
@@ -223,70 +223,7 @@ export const rewriteChatCv = async (req, res) => {
   conversation.generatedCvVersions ??= [];
   conversation.generatedCvVersions.push(baseVersion);
   await conversation.save();
-
-  try {
-    const buffers = await createGeneratedDocumentBuffers(content);
-    const fileInfo = await writeGeneratedCvToDisk({
-      userId: req.authUser._id.toString(),
-      chatId: conversation._id.toString(),
-      versionId: versionId.toString(),
-      docxBuffer: buffers.docx,
-      pdfBuffer: buffers.pdf,
-    });
-
-    const version = conversation.generatedCvVersions.id(versionId);
-    if (!version) throw httpError(500, 'The generated CV record could not be updated.');
-
-    version.status = 'completed';
-    version.docxFileName = fileInfo.docxFileName;
-    version.pdfFileName = fileInfo.pdfFileName;
-    version.docxRef = fileInfo.docxRef;
-    version.pdfRef = fileInfo.pdfRef;
-    version.summary = content.professionalSummary.slice(0, 2000);
-    version.filename = fileInfo.docxFileName;
-    await conversation.save();
-
-    return res.json({ status: 'ok', data: serializeChat(conversation.toObject()) });
-  } catch (error) {
-    const version = conversation.generatedCvVersions.id(versionId);
-    if (version) {
-      version.status = 'failed';
-      version.error = error instanceof Error ? error.message.slice(0, 500) : 'CV rewrite failed';
-      version.filename = baseVersion.filename;
-      await conversation.save();
-    }
-    throw httpError(500, 'The CV rewrite could not be generated. Please retry.');
-  }
-};
-
-export const downloadGeneratedCv = async (req, res) => {
-  if (!mongoose.isValidObjectId(req.params.id)) throw httpError(404, 'Conversation not found');
-  if (!mongoose.isValidObjectId(req.params.versionId))
-    throw httpError(404, 'Generated CV not found');
-
-  const conversation = await Chat.findOne({ _id: req.params.id, userId: req.authUser._id });
-  if (!conversation) throw httpError(404, 'Conversation not found');
-
-  const version = conversation.generatedCvVersions.id(req.params.versionId);
-  if (!version) throw httpError(404, 'Generated CV not found');
-
-  const format = req.params.format === 'pdf' ? 'pdf' : 'docx';
-  const ref = format === 'pdf' ? version.pdfRef : version.docxRef;
-  if (!ref) throw httpError(404, 'Generated file not available');
-
-  const fileData = await readGeneratedCvFile(ref);
-  const mimeType =
-    format === 'pdf'
-      ? 'application/pdf'
-      : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-
-  res.set({
-    'Content-Type': mimeType,
-    'Content-Length': String(fileData.length),
-    'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(format === 'pdf' ? version.pdfFileName || 'tailored-cv.pdf' : version.docxFileName || 'tailored-cv.docx')}`,
-    'X-Content-Type-Options': 'nosniff',
-  });
-  res.send(fileData);
+  return res.json({ status: 'ok', data: serializeChat(conversation.toObject()) });
 };
 
 export const sendMessage = async (req, res) => {
