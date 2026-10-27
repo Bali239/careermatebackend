@@ -11,21 +11,26 @@ export async function extractProfileWithGemini(cv, text) {
   else throw new Error('No usable CV text available for profile extraction');
 
   let answer;
+  let lastError;
   try {
     answer = await geminiModels.cvProfileExtraction.generate(prompt, parts, {
       responseSchema: geminiProfileSchema,
     });
   } catch (error) {
-    if (!(error instanceof GeminiRequestError) || ![500, 502, 503, 504].includes(error.status))
+    lastError = error;
+    if (!(error instanceof GeminiRequestError) || ![429, 500, 502, 503, 504].includes(error.status))
       throw error;
     console.warn(
       `Gemini primary model returned ${error.status}; retrying extraction with the fallback model.`
     );
-    answer = await geminiModels.cvProfileExtractionFallback.generate(prompt, parts, {
-      responseSchema: geminiProfileSchema,
-    });
+    try {
+      answer = await geminiModels.cvProfileExtractionFallback.generate(prompt, parts, {
+        responseSchema: geminiProfileSchema,
+      });
+    } catch (fallbackError) {
+      lastError = fallbackError;
+    }
   }
-
-  if (!answer) throw new Error('Gemini did not return CV details.');
+  if (!answer) throw lastError ?? new Error('Gemini did not return CV details.');
   return cleanExtractedProfile(JSON.parse(answer));
 }

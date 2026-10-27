@@ -3,6 +3,7 @@ import { env } from './env.js';
 
 export const GEMINI_MODELS = Object.freeze({
   cvAnalysis: 'gemini-3.6-flash',
+  cvAnalysisFallback: 'gemini-3.5-flash',
   cvProfileExtraction: 'gemini-3.6-flash',
   cvProfileExtractionFallback: 'gemini-3.5-flash',
 });
@@ -70,6 +71,7 @@ function createModel(modelName, temperature) {
 
 export const geminiModels = Object.freeze({
   cvAnalysis: createModel(GEMINI_MODELS.cvAnalysis, 0.2),
+  cvAnalysisFallback: createModel(GEMINI_MODELS.cvAnalysisFallback, 0.2),
   cvProfileExtraction: createModel(GEMINI_MODELS.cvProfileExtraction, 0.1),
   cvProfileExtractionFallback: createModel(GEMINI_MODELS.cvProfileExtractionFallback, 0.1),
 });

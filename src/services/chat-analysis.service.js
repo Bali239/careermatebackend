@@ -1,5 +1,7 @@
-import { geminiModels } from '../config/gemini.js';
+import { GeminiRequestError, geminiModels } from '../config/gemini.js';
 import { analysisResponseSchema } from '../schemas/chat.schema.js';
+
+const retryableStatuses = new Set([408, 429, 500, 502, 503, 504]);
 
 function escapeHtml(value = '') {
   return value
@@ -101,11 +103,86 @@ export async function analyzeCVForJobDescription(cv, jobDescription, cvText) {
 
   parts.push({ text: `CV TEXT:\n${extractedText.slice(0, 120000)}` });
 
-  const answer = await geminiModels.cvAnalysis.generate(prompt, parts);
-  if (!answer) throw new Error('Gemini did not return a job-fit analysis.');
+  let answer;
+  let lastError;
+  try {
+    answer = await geminiModels.cvAnalysis.generate(prompt, parts);
+  } catch (error) {
+    lastError = error;
+    if (!(error instanceof GeminiRequestError) || !retryableStatuses.has(error.status))
+      throw error;
+    console.warn(
+      `Gemini primary model returned ${error.status}; retrying job analysis with the fallback model.`
+    );
+    try {
+      answer = await geminiModels.cvAnalysisFallback.generate(prompt, parts);
+    } catch (fallbackError) {
+      lastError = fallbackError;
+    }
+  }
+  if (!answer) throw lastError ?? new Error('Gemini did not return a job-fit analysis.');
 
   const parsed = JSON.parse(answer);
-  const normalized = analysisResponseSchema.parse(parsed);
+
+  // Gemini can return concise strings or partial recommendation objects. Adapt those
+  // to the shape stored by the chat model instead of rejecting the whole analysis.
+  if (Array.isArray(parsed.recommendations)) {
+    parsed.recommendations = parsed.recommendations.map((item) => {
+      if (typeof item === 'string') {
+        const recommendation = item.trim() || 'Review CV alignment with the target role.';
+        return {
+          issue: recommendation,
+          whyItMatters: 'This change helps align the CV with the target role.',
+          suggestedImprovement: recommendation,
+          relevantSection: 'General',
+          requiresAdditionalInfo: false,
+        };
+      }
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        return {
+          issue: 'Review CV content',
+          whyItMatters: 'This change helps align the CV with the target role.',
+          suggestedImprovement: '',
+          relevantSection: 'General',
+          requiresAdditionalInfo: false,
+        };
+      }
+      return {
+        issue: String(item.issue ?? item.label ?? item.title ?? item.recommendation ?? '').trim() || 'Review CV content',
+        whyItMatters: String(
+          item.whyItMatters ??
+            item.reason ??
+            item.note ??
+            'This change helps align the CV with the target role.',
+        ).trim() || 'This change helps align the CV with the target role.',
+        suggestedImprovement: String(
+          item.suggestedImprovement ?? item.improvement ?? item.action ?? item.note ?? '',
+        ).trim() || 'Review this area and add relevant evidence from your experience.',
+        relevantSection: String(item.relevantSection ?? item.section ?? '').trim() || 'General',
+        requiresAdditionalInfo: Boolean(item.requiresAdditionalInfo),
+      };
+    });
+  }
+
+  const result = analysisResponseSchema.safeParse(parsed);
+  // Keep usable core analysis if Gemini omits optional/expanded structures or returns
+  // a field in an unexpected format. The schema's defaults fill absent arrays/strings.
+  const normalized = result.success
+    ? result.data
+    : {
+        ...analysisResponseSchema.parse({
+          summary: typeof parsed.summary === 'string' ? parsed.summary : '',
+          atsScore: parsed.atsScore,
+          tailoredSummary:
+            typeof parsed.tailoredSummary === 'string' ? parsed.tailoredSummary : parsed.summary,
+          editableHtml: typeof parsed.editableHtml === 'string' ? parsed.editableHtml : '',
+        }),
+        ...Object.fromEntries(
+          Object.entries(parsed).filter(([key, value]) =>
+            ['strengths', 'gaps', 'missingSkills', 'keywords', 'recommendations', 'scoreBreakdown'].includes(key) && Array.isArray(value),
+          ),
+        ),
+      };
 
   return {
     ...normalized,
