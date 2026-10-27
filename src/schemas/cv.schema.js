@@ -24,6 +24,7 @@ export const cvSchema = new mongoose.Schema(
     extractionError: { type: String, default: '', maxlength: 300 },
     extractionStartedAt: { type: Date, default: null },
     extractedProfile: { type: mongoose.Schema.Types.Mixed, default: undefined },
+    extractionResult: { type: mongoose.Schema.Types.Mixed, default: undefined },
     extractedAt: { type: Date, default: null },
   },
   { timestamps: true }

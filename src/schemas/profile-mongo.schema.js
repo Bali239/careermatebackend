@@ -9,6 +9,7 @@ export const profileMongoSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
+    version: { type: Number, default: 0 },
     contact: {
       fullName: { type: String, default: '' },
       email: { type: String, default: '' },
@@ -29,6 +30,20 @@ export const profileMongoSchema = new mongoose.Schema(
     awards: { type: [mongoose.Schema.Types.Mixed], default: [] },
     interests: { type: [String], default: [] },
     customSections: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    customCategories: {
+      type: mongoose.Schema.Types.Mixed,
+      default: () => ({}),
+    },
+    sourceReferences: {
+      type: [
+        {
+          cvId: { type: mongoose.Schema.Types.ObjectId, ref: 'CV' },
+          extractedAt: { type: Date },
+          confidence: { type: Number, default: null },
+        },
+      ],
+      default: [],
+    },
     manualOverrides: {
       type: mongoose.Schema.Types.Mixed,
       default: () => ({ scalars: {}, items: {}, removedItems: {} }),

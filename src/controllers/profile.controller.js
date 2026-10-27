@@ -6,6 +6,79 @@ import { profileSchema } from '../schemas/profile.schema.js';
 import { httpError } from '../utils/http-error.js';
 import { queueUnprocessedCVs } from '../services/cv-extraction.service.js';
 import { rebuildUserProfile } from '../services/profile-rebuild.service.js';
+import ProfileChange from '../models/profile-change.model.js';
+import ProfileChangeHistory from '../models/profile-change-history.model.js';
+import { applyChanges } from '../services/profile-merge.service.js';
+export const listProfileChanges = async (req, res) => {
+  const changes = await ProfileChange.find({ userId: req.authUser._id, status: 'pending' })
+    .sort({ createdAt: -1 })
+    .lean();
+  res.json({ status: 'ok', data: changes });
+};
+
+export const getProfileChange = async (req, res) => {
+  const change = await ProfileChange.findOne({
+    _id: req.params.id,
+    userId: req.authUser._id,
+  }).lean();
+  if (!change) throw httpError(404, 'Change proposal not found');
+  res.json({ status: 'ok', data: change });
+};
+
+export const applyProfileChanges = async (req, res) => {
+  const change = await ProfileChange.findOne({ _id: req.params.id, userId: req.authUser._id });
+  if (!change) throw httpError(404, 'Change proposal not found');
+  if (change.status !== 'pending') throw httpError(400, 'Change proposal already processed');
+
+  const approved = change.changes.filter((c) => c.status === 'accepted');
+  if (approved.length === 0) throw httpError(400, 'No approved changes to apply');
+
+  const result = await applyChanges(req.authUser._id, approved, change.cvId, change._id);
+  if (!result.success) throw httpError(409, result.error || 'Failed to apply changes');
+
+  change.status = 'applied';
+  change.appliedAt = new Date();
+  change.completedAt = new Date();
+  await change.save();
+
+  res.json({ status: 'ok', data: { version: result.version, applied: approved.length } });
+};
+
+export const rejectProfileChanges = async (req, res) => {
+  const change = await ProfileChange.findOne({ _id: req.params.id, userId: req.authUser._id });
+  if (!change) throw httpError(404, 'Change proposal not found');
+  if (change.status !== 'pending') throw httpError(400, 'Change proposal already processed');
+
+  change.status = 'rejected';
+  change.completedAt = new Date();
+  await change.save();
+
+  res.json({ status: 'ok', message: 'Changes rejected' });
+};
+
+export const resolveChangeItem = async (req, res) => {
+  const change = await ProfileChange.findOne({ _id: req.params.id, userId: req.authUser._id });
+  if (!change) throw httpError(404, 'Change proposal not found');
+
+  const item = change.changes.id(req.params.itemId);
+  if (!item) throw httpError(404, 'Change item not found');
+
+  const { status, resolution, manualValue } = req.body;
+  if (status) item.status = status;
+  if (resolution) item.resolution = resolution;
+  if (manualValue !== undefined) item.proposedValue = manualValue;
+
+  await change.save();
+  res.json({ status: 'ok', data: item });
+};
+
+export const getChangeHistory = async (req, res) => {
+  const history = await ProfileChangeHistory.find({ userId: req.authUser._id })
+    .sort({ timestamp: -1 })
+    .limit(50)
+    .lean();
+  res.json({ status: 'ok', data: history });
+};
 
 const emptyProfile = (user) => ({
   contact: {

@@ -127,6 +127,33 @@ export const geminiProfileSchema = {
         required: ['title', 'fields'],
       },
     },
+    customCategories: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          key: { type: 'STRING' },
+          label: { type: 'STRING' },
+          type: { type: 'STRING' },
+          value: { type: 'STRING' },
+          evidence: { type: 'STRING' },
+          confidence: { type: 'NUMBER' },
+        },
+        required: ['key', 'label', 'type', 'value'],
+      },
+    },
+    sourceEvidence: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          field: { type: 'STRING' },
+          snippet: { type: 'STRING' },
+          confidence: { type: 'NUMBER' },
+        },
+        required: ['field', 'snippet'],
+      },
+    },
   },
   required: [
     'contact',

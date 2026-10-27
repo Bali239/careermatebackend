@@ -3,6 +3,9 @@ import Profile from '../models/profile.model.js';
 import { extractProfileWithGemini } from './gemini-profile.service.js';
 import { rebuildUserProfile } from './profile-rebuild.service.js';
 import { extractDocumentText } from '../utils/cv-document-text.js';
+import { processCV } from './profile-extraction.service.js';
+import { compareProfiles } from './profile-comparison.service.js';
+import ProfileChange from '../models/profile-change.model.js';
 
 export async function queueUnprocessedCVs(userId) {
   const staleProcessing = new Date(Date.now() - 15 * 60_000);
@@ -60,11 +63,14 @@ export async function extractCVProfile(cvId, userId) {
     if (!cv) return;
     const text = await extractDocumentText(cv);
     const extracted = await extractProfileWithGemini(cv, text);
+
+    // Save extraction result
     const saved = await CV.updateOne(
       { _id: cvId, userId },
       {
         $set: {
           extractedProfile: extracted,
+          extractionResult: extracted,
           extractedAt: new Date(),
           extractionStatus: 'completed',
           extractionError: '',
@@ -74,6 +80,22 @@ export async function extractCVProfile(cvId, userId) {
     );
     if (saved.modifiedCount) {
       extractionSaved = true;
+
+      // Compare against master profile and create change proposal
+      const { changes, summary } = await compareProfiles(userId, extracted);
+
+      // Create a ProfileChange record for review
+      const extractionHash = JSON.stringify(extracted).slice(0, 64);
+      await ProfileChange.create({
+        userId,
+        cvId,
+        extractionHash,
+        changes,
+        summary,
+        status: 'pending',
+      });
+
+      // Keep legacy rebuild for backward compat (runs in background)
       const lockCollection = Profile.db.collection('profile_rebuild_locks');
       await lockCollection.updateOne({ _id: userId }, { $set: { dirty: true } }, { upsert: true });
       await rebuildUserProfile(userId);
