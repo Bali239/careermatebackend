@@ -13,15 +13,19 @@ export function errorHandler(error, req, res, next) {
       : Number.isInteger(error.statusCode)
         ? error.statusCode
         : 500;
+
   if (error?.name === 'MulterError')
     error.message =
       error.code === 'LIMIT_FILE_SIZE'
         ? 'CV must be 10 MB or smaller'
         : 'Upload a PDF or Word document';
-  const message = statusCode >= 500 ? 'Internal server error' : error.message;
+
+  const rawMessage =
+    typeof error?.message === 'string' && error.message.trim() ? error.message.trim() : '';
+  const message = rawMessage || (statusCode >= 500 ? 'Internal server error' : 'Unexpected error');
 
   if (statusCode >= 500) {
-    console.error('Request failed:', error.message);
+    console.error('Request failed:', rawMessage || error?.stack || 'Unknown server error');
   }
 
   res.status(statusCode).json({
