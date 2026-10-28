@@ -2,9 +2,12 @@ import { env } from '../config/env.js';
 import { httpError } from '../utils/http-error.js';
 
 export async function sendAuthEmail({ to, subject, heading, message, button, url, expires }) {
+  const gmailClientId = env.GMAIL_CLIENT_ID || env.GOOGLE_CLIENT_ID;
+  const gmailClientSecret = env.GMAIL_CLIENT_SECRET || env.GOOGLE_CLIENT_SECRET;
+
   if (
-    !env.GOOGLE_CLIENT_ID ||
-    !env.GOOGLE_CLIENT_SECRET ||
+    !gmailClientId ||
+    !gmailClientSecret ||
     !env.GMAIL_SENDER_EMAIL ||
     !env.GMAIL_REFRESH_TOKEN
   ) {
@@ -20,8 +23,8 @@ export async function sendAuthEmail({ to, subject, heading, message, button, url
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
-        client_id: env.GOOGLE_CLIENT_ID,
-        client_secret: env.GOOGLE_CLIENT_SECRET,
+        client_id: gmailClientId,
+        client_secret: gmailClientSecret,
         refresh_token: env.GMAIL_REFRESH_TOKEN,
         grant_type: 'refresh_token',
       }),
@@ -31,7 +34,27 @@ export async function sendAuthEmail({ to, subject, heading, message, button, url
     throw httpError(503, 'Email delivery is temporarily unavailable. Try again later.');
   }
   if (!tokenResponse.ok) {
-    console.error('Gmail API access token refresh failed with status', tokenResponse.status);
+    let errorCode = '';
+    let errorDescription = '';
+    try {
+      const payload = await tokenResponse.json();
+      errorCode = payload.error || '';
+      errorDescription = payload.error_description || '';
+    } catch {
+      // Keep the HTTP status when Google does not return JSON.
+    }
+    console.error(
+      'Gmail API access token refresh failed with status',
+      tokenResponse.status,
+      errorCode,
+      errorDescription,
+    );
+    if (errorCode === 'invalid_client') {
+      throw httpError(503, 'Email delivery is misconfigured. Check GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET.');
+    }
+    if (errorCode === 'invalid_grant') {
+      throw httpError(503, 'Email delivery authorization expired or was revoked. Generate a new GMAIL_REFRESH_TOKEN.');
+    }
     throw httpError(503, 'Email delivery is temporarily unavailable. Try again later.');
   }
   const { access_token: accessToken } = await tokenResponse.json();
