@@ -51,7 +51,8 @@ const pathGet = (target, path) => path.split('.').reduce((object, key) => object
 const stable = (value) => JSON.stringify(value);
 const sectionKey = (title) => norm(title);
 
-export async function rebuildUserProfile(userId, beforeRebuild) {
+export async function rebuildUserProfile(userId, beforeRebuild, options = {}) {
+  const { sourceCvId, replaceFromSource = false } = options;
   const token = `${process.pid}-${Date.now()}-${Math.random()}`;
   const lockCollection = Profile.db.collection('profile_rebuild_locks');
   try {
@@ -84,15 +85,20 @@ export async function rebuildUserProfile(userId, beforeRebuild) {
   try {
     if (beforeRebuild) await beforeRebuild();
     for (let pass = 0; pass < 10; pass += 1) {
-      const sources = await CV.find({ userId, extractedProfile: { $exists: true } })
+      const sourceFilter = replaceFromSource
+        ? { _id: sourceCvId, userId, extractedProfile: { $exists: true } }
+        : { userId, extractedProfile: { $exists: true } };
+      const sources = await CV.find(sourceFilter)
         .select('extractedProfile createdAt')
         .sort({ createdAt: 1, _id: 1 })
         .lean();
       const prior = await Profile.findOne({ userId }).lean();
       const merged = emptyProfile();
-      const overrides = prior?.manualOverrides ?? { scalars: {}, items: {}, removedItems: {} };
-      let legacy = prior?.legacyProtected;
-      if (!legacy && prior && !prior.manualOverridesInitialized) {
+      const overrides = replaceFromSource
+        ? { scalars: {}, items: {}, removedItems: {} }
+        : (prior?.manualOverrides ?? { scalars: {}, items: {}, removedItems: {} });
+      let legacy = replaceFromSource ? undefined : prior?.legacyProtected;
+      if (!replaceFromSource && !legacy && prior && !prior.manualOverridesInitialized) {
         legacy = Object.fromEntries(
           [...scalarPaths, ...listKeys, 'customSections'].map((path) => [
             path,
@@ -182,10 +188,10 @@ export async function rebuildUserProfile(userId, beforeRebuild) {
         {
           $set: {
             ...merged,
-            legacyProtected: legacy ?? null,
+            legacyProtected: replaceFromSource ? null : (legacy ?? null),
             manualOverrides: overrides,
             manualOverridesInitialized: true,
-            manuallyEdited: Boolean(prior?.manuallyEdited),
+            manuallyEdited: replaceFromSource ? false : Boolean(prior?.manuallyEdited),
             lastExtractedAt: new Date(),
           },
           $setOnInsert: { userId },

@@ -1,5 +1,4 @@
 import CV from '../models/cv.model.js';
-import Profile from '../models/profile.model.js';
 import { extractProfileWithGemini } from './gemini-profile.service.js';
 import { rebuildUserProfile } from './profile-rebuild.service.js';
 import { extractDocumentText } from '../utils/cv-document-text.js';
@@ -125,10 +124,18 @@ export async function extractCVProfile(cvId, userId) {
         status: 'pending',
       });
 
-      // Keep legacy rebuild for backward compat (runs in background)
-      const lockCollection = Profile.db.collection('profile_rebuild_locks');
-      await lockCollection.updateOne({ _id: userId }, { $set: { dirty: true } }, { upsert: true });
-      await rebuildUserProfile(userId);
+      // A newly uploaded CV is the new source of truth. Do not let an older
+      // extraction finish later and overwrite the newer CV's profile.
+      const newestCv = await CV.findOne({ userId })
+        .sort({ createdAt: -1, _id: -1 })
+        .select('_id')
+        .lean();
+      if (newestCv && String(newestCv._id) === String(cvId)) {
+        await rebuildUserProfile(userId, undefined, {
+          sourceCvId: cvId,
+          replaceFromSource: true,
+        });
+      }
     }
   } catch (error) {
     console.error('CV profile extraction failed:', error.message);
