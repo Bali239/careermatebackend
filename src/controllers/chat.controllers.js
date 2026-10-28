@@ -4,10 +4,7 @@ import mongoose from 'mongoose';
 import { httpError } from '../utils/http-error.js';
 import { chatCreateSchema, chatEditSchema, chatMessageSchema } from '../schemas/chat.schema.js';
 import { analyzeCVForJobDescription } from '../services/chat-analysis.service.js';
-import {
-  buildTailoredCvContent,
-} from '../services/cv-rewrite.service.js';
-import { extractDocumentText } from '../utils/cv-document-text.js';
+import { buildTailoredCvContent } from '../services/cv-rewrite.service.js';
 
 const serializeChat = (chat) => ({
   id: String(chat._id),
@@ -108,9 +105,7 @@ export const createChat = async (req, res) => {
       status: 'done',
       sourceCvName: cv.name,
       sourceCvFileName: cv.fileName,
-      messages: [
-        { role: 'assistant', text: analysis.summary },
-      ],
+      messages: [{ role: 'assistant', text: analysis.summary }],
     });
 
     res.status(201).json({ status: 'ok', data: serializeChat(conversation.toObject()) });
@@ -195,9 +190,7 @@ export const rewriteChatCv = async (req, res) => {
     throw httpError(409, 'Maximum of 3 rewritten CV versions reached.');
   }
 
-  const activeRewrite = existingVersions.find(
-    (version) => version.status === 'processing'
-  );
+  const activeRewrite = existingVersions.find((version) => version.status === 'processing');
   if (activeRewrite) {
     throw httpError(409, 'A rewritten CV is already being generated.');
   }
