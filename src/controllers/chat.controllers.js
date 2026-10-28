@@ -42,6 +42,12 @@ const serializeChat = (chat) => ({
   updatedAt: chat.updatedAt,
 });
 
+const hasCompletedAnalysis = (analysis) =>
+  Boolean(
+    analysis?.summary?.trim() &&
+      Number.isFinite(Number(analysis.atsScore))
+  );
+
 export const listChats = async (req, res) => {
   const chats = await Chat.find({ userId: req.authUser._id })
     .sort({ updatedAt: -1 })
@@ -84,7 +90,7 @@ export const createChat = async (req, res) => {
     .sort({ createdAt: -1 })
     .lean();
 
-  if (existingChat) {
+  if (existingChat && hasCompletedAnalysis(existingChat.analysis)) {
     return res.json({ status: 'ok', data: serializeChat(existingChat) });
   }
 
@@ -121,7 +127,7 @@ export const analyzeChat = async (req, res) => {
   const conversation = await Chat.findOne({ _id: req.params.id, userId: req.authUser._id });
   if (!conversation) throw httpError(404, 'Conversation not found');
 
-  if (conversation.analysisStatus === 'completed' && conversation.analysis) {
+  if (conversation.analysisStatus === 'completed' && hasCompletedAnalysis(conversation.analysis)) {
     return res.json({ status: 'ok', data: serializeChat(conversation.toObject()) });
   }
 

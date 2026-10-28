@@ -1,5 +1,14 @@
 import { GeminiRequestError, geminiModels } from '../config/gemini.js';
-import { analysisResponseSchema } from '../schemas/chat.schema.js';
+import {
+  analysisResponseSchema,
+  atsReadinessSchema,
+  experienceInsightSchema,
+  geminiAnalysisResponseSchema,
+  jobDescriptionBreakdownSchema,
+  overallJobMatchSchema,
+  requirementComparisonItemSchema,
+  scoreBreakdownItemSchema,
+} from '../schemas/chat.schema.js';
 
 const retryableStatuses = new Set([408, 429, 500, 502, 503, 504]);
 
@@ -18,6 +27,225 @@ function listHtml(items, fallback) {
   return `<ul style="margin: 8px 0 0 18px; padding: 0; list-style: disc; color: #1f2937;">
     ${values.map((item) => `<li style="margin-bottom: 6px; line-height: 1.5;">${escapeHtml(String(item)).replace(/\n/g, '<br />')}</li>`).join('')}
   </ul>`;
+}
+
+// Gemini sometimes returns keyword metadata objects (`{ keyword, inCv }`) even
+// though the API contract and MongoDB model store keywords as string arrays.
+// Normalize those responses before validating/persisting the analysis.
+export function normalizeAnalysisArrays(analysis) {
+  const textValue = (value) => {
+    if (typeof value === 'string') return value.trim();
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+    for (const key of [
+      'value',
+      'text',
+      'label',
+      'name',
+      'skill',
+      'keyword',
+      'title',
+      'status',
+      'assessment',
+      'summary',
+      'explanation',
+      'description',
+      'recommendation',
+      'action',
+      'reason',
+      'score',
+    ]) {
+      if (typeof value[key] === 'string' && value[key].trim()) return value[key].trim();
+    }
+    return '';
+  };
+  const textArray = (value) =>
+    Array.isArray(value) ? value.map(textValue).filter(Boolean) : value;
+  const stringArray = (value, objectKey) =>
+    Array.isArray(value)
+      ? value
+          .map((item) => {
+            if (typeof item === 'string') return item.trim();
+            if (item && typeof item === 'object' && typeof item[objectKey] === 'string') {
+              return item[objectKey].trim();
+            }
+            return '';
+          })
+          .filter(Boolean)
+      : value;
+
+  for (const field of ['strengths', 'gaps', 'missingSkills', 'keywords']) {
+    analysis[field] = stringArray(analysis[field], field === 'keywords' ? 'keyword' : 'value');
+  }
+
+  if (analysis.jobDescriptionBreakdown) {
+    const breakdown = analysis.jobDescriptionBreakdown;
+    for (const field of [
+      'responsibilities',
+      'requiredSkills',
+      'preferredSkills',
+      'education',
+      'certifications',
+      'experienceRequirements',
+      'technologies',
+      'softSkills',
+      'majorExpectations',
+    ]) {
+      breakdown[field] = textArray(breakdown[field]);
+    }
+    breakdown.keywords = stringArray(breakdown.keywords, 'keyword');
+    for (const field of ['title', 'seniority']) breakdown[field] = textValue(breakdown[field]);
+  }
+
+  if (analysis.atsReadiness) {
+    for (const field of [
+      'keywordCoverage',
+      'standardHeadings',
+      'contactInformation',
+      'chronology',
+      'readability',
+      'quantifiedAchievements',
+    ]) {
+      analysis.atsReadiness[field] = textValue(analysis.atsReadiness[field]);
+    }
+    analysis.atsReadiness.technicalDocumentChecks = textArray(
+      analysis.atsReadiness.technicalDocumentChecks
+    );
+    analysis.atsReadiness.aiRecommendations = textArray(analysis.atsReadiness.aiRecommendations);
+  }
+
+  if (Array.isArray(analysis.skillsComparison)) {
+    const statusMap = {
+      matched: 'matched',
+      match: 'matched',
+      met: 'matched',
+      present: 'matched',
+      'partially matched': 'partially matched',
+      partial: 'partially matched',
+      missing: 'not demonstrated',
+      absent: 'not demonstrated',
+      unclear: 'unclear',
+      unknown: 'unclear',
+    };
+    const importanceMap = { required: 'required', must: 'required', preferred: 'preferred', optional: 'optional' };
+    analysis.skillsComparison = analysis.skillsComparison.map((item) => ({
+      ...item,
+      requirement: textValue(item?.requirement ?? item?.skill ?? item?.keyword),
+      status: statusMap[String(item?.status ?? item?.match ?? 'unclear').toLowerCase()] ?? 'unclear',
+      importance: importanceMap[String(item?.importance ?? 'optional').toLowerCase()] ?? 'optional',
+      evidence: textArray(item?.evidence),
+      explanation: textValue(item?.explanation ?? item?.reason),
+      nextAction: textValue(item?.nextAction ?? item?.action),
+    }));
+  }
+
+  if (Array.isArray(analysis.experienceInsights)) {
+    analysis.experienceInsights = analysis.experienceInsights.map((item) => ({
+      ...item,
+      title: textValue(item?.title ?? item?.role),
+      relevance: ['high', 'medium', 'low'].includes(String(item?.relevance).toLowerCase())
+        ? String(item.relevance).toLowerCase()
+        : 'medium',
+      evidence: textArray(item?.evidence),
+      skillsDemonstrated: textArray(item?.skillsDemonstrated ?? item?.skills),
+      weaknesses: textArray(item?.weaknesses),
+      priorities: textArray(item?.priorities),
+    }));
+  }
+
+  return analysis;
+}
+
+function parseOptionalArray(schema, value, label) {
+  if (value === undefined) return undefined;
+  const parsed = schema.array().safeParse(value);
+  if (!parsed.success) {
+    console.warn(`Gemini returned invalid ${label}; omitting only that section.`);
+    return undefined;
+  }
+  return parsed.data;
+}
+
+// Validate each expanded section independently. One malformed optional section
+// must not erase valid scores, skills, or ATS data from the same Gemini response.
+export function normalizeAnalysisResponse(parsed) {
+  normalizeAnalysisArrays(parsed);
+
+  if (typeof parsed.summary !== 'string' || !parsed.summary.trim()) {
+    throw new Error('Gemini returned an analysis without a summary. Please try again.');
+  }
+  if (!Number.isFinite(Number(parsed.atsScore))) {
+    throw new Error('Gemini returned an analysis without a valid ATS score. Please try again.');
+  }
+
+  // Parse only the stable/base fields here. Expanded sections are validated
+  // independently below so one malformed Gemini section cannot reject the
+  // otherwise usable analysis.
+  const core = analysisResponseSchema.parse({
+    summary: parsed.summary,
+    atsScore: parsed.atsScore,
+    strengths: parsed.strengths,
+    gaps: parsed.gaps,
+    missingSkills: parsed.missingSkills,
+    keywords: parsed.keywords,
+    recommendations: parsed.recommendations,
+    tailoredSummary: parsed.tailoredSummary,
+    editableHtml: parsed.editableHtml,
+  });
+  for (const field of [
+    'overallJobMatch',
+    'skillsComparison',
+    'atsReadiness',
+    'experienceInsights',
+    'jobDescriptionBreakdown',
+    'scoreBreakdown',
+  ]) {
+    delete core[field];
+  }
+
+  const normalized = { ...core };
+  const optionalSections = [
+    ['overallJobMatch', overallJobMatchSchema],
+    ['atsReadiness', atsReadinessSchema],
+    ['jobDescriptionBreakdown', jobDescriptionBreakdownSchema],
+  ];
+  for (const [field, schema] of optionalSections) {
+    if (parsed[field] === undefined) continue;
+    const result = schema.safeParse(parsed[field]);
+    if (result.success) normalized[field] = result.data;
+    else console.warn(`Gemini returned invalid ${field}; omitting only that section.`);
+  }
+
+  const arraySections = [
+    ['skillsComparison', requirementComparisonItemSchema, 'skills comparison'],
+    ['experienceInsights', experienceInsightSchema, 'experience insights'],
+  ];
+  for (const [field, schema, label] of arraySections) {
+    const value = parseOptionalArray(schema, parsed[field], label);
+    if (value !== undefined) normalized[field] = value;
+  }
+
+  const scoreBreakdown = parseOptionalArray(
+    scoreBreakdownItemSchema,
+    parsed.scoreBreakdown,
+    'score breakdown'
+  );
+  if (scoreBreakdown !== undefined) normalized.scoreBreakdown = scoreBreakdown;
+
+  const scoredFields = [
+    'technicalSkills',
+    'experienceRelevance',
+    'keywordCoverage',
+    'evidenceQuality',
+  ];
+  if (
+    normalized.overallJobMatch &&
+    !scoredFields.some((field) => typeof normalized.overallJobMatch[field] === 'number')
+  ) {
+    delete normalized.overallJobMatch;
+  }
+
+  return normalized;
 }
 
 function buildEditableHtml(analysis) {
@@ -88,10 +316,12 @@ export async function analyzeCVForJobDescription(cv, jobDescription, cvText) {
     'You are an ATS-focused career advisor. Review the CV against the job description and give a structured analysis in valid JSON only.',
     'Return fields: summary, atsScore, strengths, gaps, missingSkills, recommendations, keywords, tailoredSummary, editableHtml, scoreBreakdown.',
     "scoreBreakdown must be an array of 3 to 5 objects with { label, score, note } such as 'Keyword alignment', 'Experience match', 'Leadership', 'Skills fit', 'Formatting clarity'.",
-    'Each score should be a number from 0 to 100 and the note should explain why the score was assigned without making unsupported claims.',
-    'Make the analysis realistic, grounded in the CV text, and never invent experience or credentials.',
+    'Each score should be a number from 0 to 100 and must be based only on explicit evidence in the CV and the supplied job description. Do not guess or use a neutral placeholder score.',
+    'Make every analysis detail realistic and grounded in the CV text. Never invent experience, credentials, dates, skills, achievements, metrics, or evidence.',
+    'If the CV does not contain enough evidence for a field, omit that field or return an empty array. Do not fill missing fields with generic advice, assumptions, or made-up facts.',
     'Use ATS-friendly suggestions and a short tailored summary that can be edited by the user.',
-    'keywords should be the most relevant job keywords from the description that are or should be reflected in the CV.',
+    'keywords should be the relevant job keywords that can be compared against the CV; do not claim a keyword is present unless it is supported by the CV text.',
+    'Return expanded fields when the CV and job description provide enough evidence. If a section cannot be supported, omit that section rather than inventing data or generic fallback text.',
     'editableHtml must be a polished HTML resume draft for the user to edit in the browser.',
     'Also return when available: overallJobMatch { score, technicalSkills, experienceRelevance, educationAlignment, keywordCoverage, evidenceQuality, explanation, strongestAreas, biggestGaps }, skillsComparison array of { requirement, status, importance, evidence, explanation, nextAction }, experienceInsights array of { title, relevance, evidence, skillsDemonstrated, weaknesses, priorities }, jobDescriptionBreakdown { title, seniority, responsibilities, requiredSkills, preferredSkills, education, certifications, experienceRequirements, technologies, softSkills, keywords, majorExpectations }, atsReadiness { keywordCoverage, standardHeadings, contactInformation, chronology, readability, quantifiedAchievements, technicalDocumentChecks, aiRecommendations }.',
     'The response must be valid JSON and nothing else.',
@@ -107,7 +337,9 @@ export async function analyzeCVForJobDescription(cv, jobDescription, cvText) {
   let answer;
   let lastError;
   try {
-    answer = await geminiModels.cvAnalysis.generate(prompt, parts);
+    answer = await geminiModels.cvAnalysis.generate(prompt, parts, {
+      responseSchema: geminiAnalysisResponseSchema,
+    });
   } catch (error) {
     lastError = error;
     if (!(error instanceof GeminiRequestError) || !retryableStatuses.has(error.status)) throw error;
@@ -115,7 +347,9 @@ export async function analyzeCVForJobDescription(cv, jobDescription, cvText) {
       `Gemini primary model returned ${error.status}; retrying job analysis with the fallback model.`
     );
     try {
-      answer = await geminiModels.cvAnalysisFallback.generate(prompt, parts);
+      answer = await geminiModels.cvAnalysisFallback.generate(prompt, parts, {
+        responseSchema: geminiAnalysisResponseSchema,
+      });
     } catch (fallbackError) {
       lastError = fallbackError;
     }
@@ -124,91 +358,51 @@ export async function analyzeCVForJobDescription(cv, jobDescription, cvText) {
 
   const parsed = JSON.parse(answer);
 
-  // Gemini can return concise strings or partial recommendation objects. Adapt those
-  // to the shape stored by the chat model instead of rejecting the whole analysis.
+  // Gemini can return concise strings or partial recommendation objects. Preserve only
+  // information Gemini actually returned; never manufacture explanatory text or actions.
   if (Array.isArray(parsed.recommendations)) {
     parsed.recommendations = parsed.recommendations.map((item) => {
       if (typeof item === 'string') {
-        const recommendation = item.trim() || 'Review CV alignment with the target role.';
-        return {
-          issue: recommendation,
-          whyItMatters: 'This change helps align the CV with the target role.',
-          suggestedImprovement: recommendation,
-          relevantSection: 'General',
-          requiresAdditionalInfo: false,
-        };
+        const recommendation = item.trim();
+        return recommendation ? { issue: recommendation } : null;
       }
       if (!item || typeof item !== 'object' || Array.isArray(item)) {
-        return {
-          issue: 'Review CV content',
-          whyItMatters: 'This change helps align the CV with the target role.',
-          suggestedImprovement: '',
-          relevantSection: 'General',
-          requiresAdditionalInfo: false,
-        };
+        return null;
       }
-      return {
-        issue:
-          String(item.issue ?? item.label ?? item.title ?? item.recommendation ?? '').trim() ||
-          'Review CV content',
-        whyItMatters:
-          String(
-            item.whyItMatters ??
-              item.reason ??
-              item.note ??
-              'This change helps align the CV with the target role.'
-          ).trim() || 'This change helps align the CV with the target role.',
-        suggestedImprovement:
-          String(
-            item.suggestedImprovement ?? item.improvement ?? item.action ?? item.note ?? ''
-          ).trim() || 'Review this area and add relevant evidence from your experience.',
-        relevantSection: String(item.relevantSection ?? item.section ?? '').trim() || 'General',
-        requiresAdditionalInfo: Boolean(item.requiresAdditionalInfo),
-      };
-    });
+      const fields = ['issue', 'whyItMatters', 'suggestedImprovement', 'relevantSection'];
+      const normalizedItem = Object.fromEntries(
+        fields
+          .map((field) => [field, typeof item[field] === 'string' ? item[field].trim() : ''])
+          .filter(([, value]) => value)
+      );
+      if (typeof item.requiresAdditionalInfo === 'boolean') {
+        normalizedItem.requiresAdditionalInfo = item.requiresAdditionalInfo;
+      }
+      return Object.keys(normalizedItem).length ? normalizedItem : null;
+    }).filter(Boolean);
   }
 
-  const result = analysisResponseSchema.safeParse(parsed);
-  // Keep usable core analysis if Gemini omits optional/expanded structures or returns
-  // a field in an unexpected format. The schema's defaults fill absent arrays/strings.
-  const normalized = result.success
-    ? result.data
-    : {
-        ...analysisResponseSchema.parse({
-          summary: typeof parsed.summary === 'string' ? parsed.summary : '',
-          atsScore: parsed.atsScore,
-          tailoredSummary:
-            typeof parsed.tailoredSummary === 'string' ? parsed.tailoredSummary : parsed.summary,
-          editableHtml: typeof parsed.editableHtml === 'string' ? parsed.editableHtml : '',
-        }),
-        ...Object.fromEntries(
-          Object.entries(parsed).filter(
-            ([key, value]) =>
-              [
-                'strengths',
-                'gaps',
-                'missingSkills',
-                'keywords',
-                'recommendations',
-                'scoreBreakdown',
-              ].includes(key) && Array.isArray(value)
-          )
-        ),
-      };
+  const normalized = normalizeAnalysisResponse(parsed);
 
   // Compute a real overall score from the sub-metrics when available.
   // Never fall back to atsScore — that is Gemini's independent single score,
   // not a composite of job match / technical / experience / keyword / evidence.
   const om = normalized.overallJobMatch;
-  const scoreParts = [];
-  if (typeof om?.score === 'number') scoreParts.push(om.score);
-  if (typeof om?.technicalSkills === 'number') scoreParts.push(om.technicalSkills);
-  if (typeof om?.experienceRelevance === 'number') scoreParts.push(om.experienceRelevance);
-  if (typeof om?.keywordCoverage === 'number') scoreParts.push(om.keywordCoverage);
-  if (typeof om?.evidenceQuality === 'number') scoreParts.push(om.evidenceQuality);
-  normalized.overallScore = scoreParts.length > 0
-    ? Math.round(scoreParts.reduce((a, b) => a + b, 0) / scoreParts.length)
-    : undefined;
+  const scoreParts = [
+    om?.technicalSkills,
+    om?.experienceRelevance,
+    om?.educationAlignment,
+    om?.keywordCoverage,
+    om?.evidenceQuality,
+  ].filter((score) => typeof score === 'number');
+  if (scoreParts.length > 0) {
+    const calculatedScore = Math.round(scoreParts.reduce((a, b) => a + b, 0) / scoreParts.length);
+    normalized.overallScore = calculatedScore;
+    if (om) normalized.overallJobMatch = { ...om, score: calculatedScore };
+  } else {
+    normalized.overallScore = null;
+    if (normalized.overallJobMatch) delete normalized.overallJobMatch.score;
+  }
 
   return {
     ...normalized,

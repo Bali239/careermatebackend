@@ -44,7 +44,7 @@ export async function rotateSession(refreshToken) {
       $or: [{ revokedAt: null }, { revokedAt: { $exists: false } }],
     },
     { $set: { revokedAt: new Date() } },
-    { new: false }
+    { returnDocument: 'before' }
   );
   if (!session) throw httpError(401, 'Session is invalid or expired');
   const user = await User.findById(session.userId);

@@ -95,11 +95,11 @@ const jobDescriptionBreakdownSchema = new mongoose.Schema(
 
 const recommendationSchema = new mongoose.Schema(
   {
-    issue: { type: String, required: true, maxlength: 400 },
-    whyItMatters: { type: String, required: true, maxlength: 500 },
-    suggestedImprovement: { type: String, required: true, maxlength: 500 },
-    relevantSection: { type: String, required: true, maxlength: 120 },
-    requiresAdditionalInfo: { type: Boolean, default: false },
+    issue: { type: String, maxlength: 400 },
+    whyItMatters: { type: String, maxlength: 500 },
+    suggestedImprovement: { type: String, maxlength: 500 },
+    relevantSection: { type: String, maxlength: 120 },
+    requiresAdditionalInfo: { type: Boolean },
   },
   { _id: false }
 );
@@ -128,7 +128,7 @@ const chatAnalysisSchema = new mongoose.Schema(
   {
     summary: { type: String, required: true, maxlength: 2000 },
     atsScore: { type: Number, required: true, min: 0, max: 100 },
-    overallScore: { type: Number, default: 0, min: 0, max: 100 },
+    overallScore: { type: Number, default: null, min: 0, max: 100 },
     overallJobMatch: { type: overallJobMatchSchema, default: null },
     skillsComparison: { type: [requirementComparisonItemSchema], default: [] },
     atsReadiness: { type: atsReadinessSchema, default: null },

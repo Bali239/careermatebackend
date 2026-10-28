@@ -83,11 +83,11 @@ export const jobDescriptionBreakdownSchema = z.object({
 
 export const recommendationSchema = z
   .object({
-    issue: z.string().trim().max(400).default(''),
-    whyItMatters: z.string().trim().max(500).default(''),
-    suggestedImprovement: z.string().trim().max(500).default(''),
-    relevantSection: z.string().trim().max(120).default(''),
-    requiresAdditionalInfo: z.boolean().default(false),
+    issue: z.string().trim().min(1).max(400).optional(),
+    whyItMatters: z.string().trim().min(1).max(500).optional(),
+    suggestedImprovement: z.string().trim().min(1).max(500).optional(),
+    relevantSection: z.string().trim().min(1).max(120).optional(),
+    requiresAdditionalInfo: z.boolean().optional(),
   })
   .passthrough();
 
@@ -95,7 +95,7 @@ export const analysisResponseSchema = z
   .object({
     summary: z.string().max(2000).default(''),
     atsScore: z.coerce.number().min(0).max(100).default(0),
-    overallScore: z.coerce.number().min(0).max(100).default(0),
+    overallScore: z.coerce.number().min(0).max(100).nullable().optional(),
     overallJobMatch: overallJobMatchSchema.optional(),
     skillsComparison: z.array(requirementComparisonItemSchema).max(30).default([]),
     atsReadiness: atsReadinessSchema.optional(),
@@ -111,3 +111,160 @@ export const analysisResponseSchema = z
     scoreBreakdown: z.array(scoreBreakdownItemSchema).max(5).default([]),
   })
   .passthrough();
+
+// Gemini's structured-output schema. Keeping this separate from the Zod
+// persistence schema lets optional sections be omitted while forcing Gemini to
+// use the scalar/array shapes expected by the API.
+const geminiStringArray = { type: 'ARRAY', items: { type: 'STRING' } };
+const geminiRecommendation = {
+  type: 'OBJECT',
+  properties: {
+    issue: { type: 'STRING' },
+    whyItMatters: { type: 'STRING' },
+    suggestedImprovement: { type: 'STRING' },
+    relevantSection: { type: 'STRING' },
+    requiresAdditionalInfo: { type: 'BOOLEAN' },
+  },
+};
+
+export const geminiAnalysisResponseSchema = {
+  type: 'OBJECT',
+  properties: {
+    summary: { type: 'STRING' },
+    atsScore: { type: 'NUMBER' },
+    strengths: geminiStringArray,
+    gaps: geminiStringArray,
+    missingSkills: geminiStringArray,
+    recommendations: { type: 'ARRAY', items: geminiRecommendation },
+    keywords: geminiStringArray,
+    tailoredSummary: { type: 'STRING' },
+    editableHtml: { type: 'STRING' },
+    scoreBreakdown: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          label: { type: 'STRING' },
+          score: { type: 'NUMBER' },
+          note: { type: 'STRING' },
+        },
+        required: ['label', 'score', 'note'],
+      },
+    },
+    overallJobMatch: {
+      type: 'OBJECT',
+      properties: {
+        score: { type: 'NUMBER' },
+        technicalSkills: { type: 'NUMBER' },
+        experienceRelevance: { type: 'NUMBER' },
+        educationAlignment: { type: 'NUMBER' },
+        keywordCoverage: { type: 'NUMBER' },
+        evidenceQuality: { type: 'NUMBER' },
+        explanation: { type: 'STRING' },
+        strongestAreas: geminiStringArray,
+        biggestGaps: geminiStringArray,
+      },
+    },
+    skillsComparison: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          requirement: { type: 'STRING' },
+          status: { type: 'STRING' },
+          importance: { type: 'STRING' },
+          evidence: geminiStringArray,
+          explanation: { type: 'STRING' },
+          nextAction: { type: 'STRING' },
+        },
+        required: ['requirement', 'status', 'importance', 'evidence', 'explanation', 'nextAction'],
+      },
+    },
+    atsReadiness: {
+      type: 'OBJECT',
+      properties: {
+        keywordCoverage: { type: 'STRING' },
+        standardHeadings: { type: 'STRING' },
+        contactInformation: { type: 'STRING' },
+        chronology: { type: 'STRING' },
+        readability: { type: 'STRING' },
+        quantifiedAchievements: { type: 'STRING' },
+        technicalDocumentChecks: geminiStringArray,
+        aiRecommendations: geminiStringArray,
+      },
+      required: [
+        'keywordCoverage',
+        'standardHeadings',
+        'contactInformation',
+        'chronology',
+        'readability',
+        'quantifiedAchievements',
+        'technicalDocumentChecks',
+        'aiRecommendations',
+      ],
+    },
+    experienceInsights: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          title: { type: 'STRING' },
+          relevance: { type: 'STRING' },
+          evidence: geminiStringArray,
+          skillsDemonstrated: geminiStringArray,
+          weaknesses: geminiStringArray,
+          priorities: geminiStringArray,
+        },
+        required: [
+          'title',
+          'relevance',
+          'evidence',
+          'skillsDemonstrated',
+          'weaknesses',
+          'priorities',
+        ],
+      },
+    },
+    jobDescriptionBreakdown: {
+      type: 'OBJECT',
+      properties: {
+        title: { type: 'STRING' },
+        seniority: { type: 'STRING' },
+        responsibilities: geminiStringArray,
+        requiredSkills: geminiStringArray,
+        preferredSkills: geminiStringArray,
+        education: geminiStringArray,
+        certifications: geminiStringArray,
+        experienceRequirements: geminiStringArray,
+        technologies: geminiStringArray,
+        softSkills: geminiStringArray,
+        keywords: geminiStringArray,
+        majorExpectations: geminiStringArray,
+      },
+      required: [
+        'responsibilities',
+        'requiredSkills',
+        'preferredSkills',
+        'education',
+        'certifications',
+        'experienceRequirements',
+        'technologies',
+        'softSkills',
+        'keywords',
+        'majorExpectations',
+      ],
+    },
+  },
+  required: [
+    'summary',
+    'atsScore',
+    'strengths',
+    'gaps',
+    'missingSkills',
+    'recommendations',
+    'keywords',
+    'tailoredSummary',
+    'editableHtml',
+    'scoreBreakdown',
+  ],
+};

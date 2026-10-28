@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { analysisResponseSchema } from '../src/schemas/chat.schema.js';
+import {
+  normalizeAnalysisArrays,
+  normalizeAnalysisResponse,
+} from '../src/services/chat-analysis.service.js';
 
 const payload = {
   summary: 'Strong product-focused engineer profile with relevant leadership exposure.',
@@ -88,4 +92,99 @@ test('analysis response schema preserves the expanded job-match structure', () =
   assert.ok(Array.isArray(parsed.experienceInsights));
   assert.ok(parsed.jobDescriptionBreakdown);
   assert.equal(parsed.recommendations[0].issue, 'Metrics are light.');
+});
+
+test('analysis normalization converts Gemini keyword metadata to strings', () => {
+  const parsed = normalizeAnalysisArrays({
+    keywords: [
+      { keyword: 'C#', inCv: false },
+      { keyword: 'React', inCv: true },
+    ],
+    jobDescriptionBreakdown: {
+      keywords: [{ keyword: 'Docker', inCv: true }],
+    },
+  });
+
+  assert.deepEqual(parsed.keywords, ['C#', 'React']);
+  assert.deepEqual(parsed.jobDescriptionBreakdown.keywords, ['Docker']);
+  assert.doesNotThrow(() => analysisResponseSchema.parse(parsed));
+});
+
+test('a malformed optional section does not erase valid Gemini scoring data', () => {
+  const parsed = normalizeAnalysisResponse({
+    ...payload,
+    scoreBreakdown: [{ label: 'invalid', score: 'not-a-number', note: '' }],
+  });
+
+  assert.equal(parsed.atsScore, 82);
+  assert.equal(parsed.overallJobMatch.score, 82);
+  assert.ok(parsed.atsReadiness);
+  assert.equal(parsed.skillsComparison.length, 1);
+  assert.deepEqual(parsed.scoreBreakdown, []);
+});
+
+test('analysis normalization adapts Gemini assessment objects and status labels', () => {
+  const parsed = normalizeAnalysisResponse({
+    ...payload,
+    atsReadiness: {
+      keywordCoverage: { status: 'good', explanation: 'Most target terms are present.' },
+      standardHeadings: { value: 'Present' },
+      contactInformation: { assessment: 'Complete' },
+      chronology: { summary: 'Consistent' },
+      readability: { text: 'Clear' },
+      quantifiedAchievements: { label: 'Needs improvement' },
+      technicalDocumentChecks: [{ text: 'Readable formatting' }],
+      aiRecommendations: [{ recommendation: 'Add impact metrics' }],
+    },
+    skillsComparison: [
+      {
+        skill: 'React',
+        match: 'present',
+        importance: 'must',
+        evidence: [{ text: 'Built React dashboards' }],
+        reason: 'Direct evidence exists.',
+        action: 'Keep the example prominent.',
+      },
+    ],
+    jobDescriptionBreakdown: {
+      ...payload.jobDescriptionBreakdown,
+      requiredSkills: [{ name: 'React' }],
+      responsibilities: [{ description: 'Build user-facing features' }],
+    },
+    experienceInsights: [
+      {
+        role: 'Frontend Engineer',
+        relevance: 'HIGH',
+        evidence: [{ text: 'Led frontend delivery' }],
+        skills: [{ label: 'React' }],
+        weaknesses: [],
+        priorities: [],
+      },
+    ],
+  });
+
+  assert.equal(parsed.atsReadiness.keywordCoverage, 'good');
+  assert.equal(parsed.skillsComparison[0].status, 'matched');
+  assert.equal(parsed.skillsComparison[0].requirement, 'React');
+  assert.deepEqual(parsed.jobDescriptionBreakdown.requiredSkills, ['React']);
+  assert.equal(parsed.experienceInsights[0].relevance, 'high');
+});
+
+test('malformed expanded sections are omitted without rejecting the base analysis', () => {
+  const parsed = normalizeAnalysisResponse({
+    ...payload,
+    overallJobMatch: { score: 'invalid' },
+    skillsComparison: [{ requirement: 'React', status: 'invalid' }],
+    atsReadiness: { keywordCoverage: { unexpected: true } },
+    experienceInsights: [{ title: { unexpected: true } }],
+    jobDescriptionBreakdown: { responsibilities: Array.from({ length: 21 }, () => 'too many') },
+  });
+
+  assert.equal(parsed.summary, payload.summary);
+  assert.equal(parsed.atsScore, 82);
+  assert.equal(parsed.overallJobMatch, undefined);
+  assert.equal(parsed.skillsComparison, undefined);
+  assert.equal(parsed.atsReadiness, undefined);
+  assert.equal(parsed.experienceInsights, undefined);
+  assert.equal(parsed.jobDescriptionBreakdown, undefined);
 });

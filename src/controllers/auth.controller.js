@@ -93,7 +93,7 @@ export const verifyEmail = async (req, res) => {
   const user = await User.findByIdAndUpdate(
     token.userId,
     { $set: { emailVerified: true } },
-    { new: true }
+    { returnDocument: 'after' }
   );
   if (!user) throw httpError(400, 'This link is invalid or has expired');
   res.json({ status: 'ok', message: 'Email verified. You can now sign in.' });
