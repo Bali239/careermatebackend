@@ -107,7 +107,11 @@ const recommendationSchema = new mongoose.Schema(
 const generatedCvVersionSchema = new mongoose.Schema(
   {
     _id: { type: mongoose.Schema.Types.ObjectId, auto: true },
-    status: { type: String, enum: ['pending', 'processing', 'completed', 'failed'], default: 'pending' },
+    status: {
+      type: String,
+      enum: ['pending', 'processing', 'completed', 'failed'],
+      default: 'pending',
+    },
     filename: { type: String, required: true, maxlength: 255 },
     docxFileName: { type: String, maxlength: 255 },
     pdfFileName: { type: String, maxlength: 255 },
@@ -124,6 +128,7 @@ const chatAnalysisSchema = new mongoose.Schema(
   {
     summary: { type: String, required: true, maxlength: 2000 },
     atsScore: { type: Number, required: true, min: 0, max: 100 },
+    overallScore: { type: Number, default: 0, min: 0, max: 100 },
     overallJobMatch: { type: overallJobMatchSchema, default: null },
     skillsComparison: { type: [requirementComparisonItemSchema], default: [] },
     atsReadiness: { type: atsReadinessSchema, default: null },

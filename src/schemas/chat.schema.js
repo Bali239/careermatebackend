@@ -81,28 +81,33 @@ export const jobDescriptionBreakdownSchema = z.object({
   majorExpectations: z.array(z.string().trim().min(1).max(300)).max(20).default([]),
 });
 
-export const recommendationSchema = z.object({
-  issue: z.string().trim().max(400).default(''),
-  whyItMatters: z.string().trim().max(500).default(''),
-  suggestedImprovement: z.string().trim().max(500).default(''),
-  relevantSection: z.string().trim().max(120).default(''),
-  requiresAdditionalInfo: z.boolean().default(false),
-}).passthrough();
+export const recommendationSchema = z
+  .object({
+    issue: z.string().trim().max(400).default(''),
+    whyItMatters: z.string().trim().max(500).default(''),
+    suggestedImprovement: z.string().trim().max(500).default(''),
+    relevantSection: z.string().trim().max(120).default(''),
+    requiresAdditionalInfo: z.boolean().default(false),
+  })
+  .passthrough();
 
-export const analysisResponseSchema = z.object({
-  summary: z.string().max(2000).default(''),
-  atsScore: z.coerce.number().min(0).max(100).default(0),
-  overallJobMatch: overallJobMatchSchema.optional(),
-  skillsComparison: z.array(requirementComparisonItemSchema).max(30).default([]),
-  atsReadiness: atsReadinessSchema.optional(),
-  experienceInsights: z.array(experienceInsightSchema).max(20).default([]),
-  jobDescriptionBreakdown: jobDescriptionBreakdownSchema.optional(),
-  recommendations: z.array(recommendationSchema).max(20).default([]),
-  strengths: z.array(z.string().trim().min(1).max(400)).max(20).default([]),
-  gaps: z.array(z.string().trim().min(1).max(400)).max(20).default([]),
-  missingSkills: z.array(z.string().trim().min(1).max(200)).max(20).default([]),
-  keywords: z.array(z.string().trim().min(1).max(100)).max(50).default([]),
-  tailoredSummary: z.string().max(3000).default(''),
-  editableHtml: z.string().max(250000).default(''),
-  scoreBreakdown: z.array(scoreBreakdownItemSchema).max(5).default([]),
-}).passthrough();
+export const analysisResponseSchema = z
+  .object({
+    summary: z.string().max(2000).default(''),
+    atsScore: z.coerce.number().min(0).max(100).default(0),
+    overallScore: z.coerce.number().min(0).max(100).default(0),
+    overallJobMatch: overallJobMatchSchema.optional(),
+    skillsComparison: z.array(requirementComparisonItemSchema).max(30).default([]),
+    atsReadiness: atsReadinessSchema.optional(),
+    experienceInsights: z.array(experienceInsightSchema).max(20).default([]),
+    jobDescriptionBreakdown: jobDescriptionBreakdownSchema.optional(),
+    recommendations: z.array(recommendationSchema).max(20).default([]),
+    strengths: z.array(z.string().trim().min(1).max(400)).max(20).default([]),
+    gaps: z.array(z.string().trim().min(1).max(400)).max(20).default([]),
+    missingSkills: z.array(z.string().trim().min(1).max(200)).max(20).default([]),
+    keywords: z.array(z.string().trim().min(1).max(100)).max(50).default([]),
+    tailoredSummary: z.string().max(3000).default(''),
+    editableHtml: z.string().max(250000).default(''),
+    scoreBreakdown: z.array(scoreBreakdownItemSchema).max(5).default([]),
+  })
+  .passthrough();
