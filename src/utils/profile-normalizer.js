@@ -66,6 +66,42 @@ const cleanCustomCategory = (raw) => {
 };
 
 const normalize = (value) => (typeof value === 'string' ? value.trim() : '');
+const sectionHeadingPattern = /^(professional\s+summary|summary|core\s+skills|skills|professional\s+experience|experience|projects?|education|certifications?|languages?|awards?|interests?|contact)$/i;
+const contactPattern = /(?:\b[^\s@]+@[^\s@]+\.[^\s@]+\b|(?:https?:\/\/|www\.)\S+|\+?\d[\d\s().-]{6,}\d)/i;
+
+const normalizeList = (value) =>
+  (Array.isArray(value) ? value : [])
+    .filter((item) => typeof item === 'string')
+    .map(normalize)
+    .filter((item) => item && !sectionHeadingPattern.test(item));
+
+const normalizeExperience = (item) => {
+  if (!item || typeof item !== 'object') return null;
+  const experience = {
+    jobTitle: normalize(item.jobTitle),
+    company: normalize(item.company),
+    location: normalize(item.location),
+    startDate: normalize(item.startDate),
+    endDate: normalize(item.endDate),
+    current: item.current === true,
+    description: normalize(item.description),
+    achievements: normalizeList(item.achievements),
+  };
+  const evidence = [
+    experience.jobTitle,
+    experience.company,
+    experience.location,
+    experience.startDate,
+    experience.endDate,
+    experience.description,
+    ...experience.achievements,
+  ].join(' ');
+  if (!experience.jobTitle && !experience.company) return null;
+  if (sectionHeadingPattern.test(experience.jobTitle) || contactPattern.test(evidence)) return null;
+  if (/^(candidate|professional|full stack|software)\s+(developer|engineer)?$/i.test(experience.jobTitle)) return null;
+  if (!experience.company && !experience.startDate && !experience.endDate && !experience.achievements.length) return null;
+  return experience;
+};
 
 export function cleanExtractedProfile(raw) {
   const result = emptyProfile();
@@ -73,23 +109,22 @@ export function cleanExtractedProfile(raw) {
     result.contact[key] = normalize(raw.contact?.[key]);
   result.headline = normalize(raw.headline);
   result.summary = normalize(raw.summary);
-  for (const key of ['skills', 'interests']) {
-    result[key] = (Array.isArray(raw[key]) ? raw[key] : [])
-      .filter((item) => typeof item === 'string')
-      .map(normalize)
-      .filter(Boolean);
-  }
+  const contactValues = new Set(Object.values(result.contact).map(norm).filter(Boolean));
+  result.skills = normalizeList(raw.skills).filter(
+    (skill) => !contactPattern.test(skill) && !contactValues.has(norm(skill))
+  );
+  result.interests = normalizeList(raw.interests);
+  result.experience = (Array.isArray(raw.experience) ? raw.experience : [])
+    .map(normalizeExperience)
+    .filter(Boolean);
   for (const key of [
-    'experience',
     'education',
     'certifications',
     'projects',
     'languages',
     'awards',
   ]) {
-    result[key] = Array.isArray(raw[key])
-      ? raw[key].filter((item) => item && typeof item === 'object')
-      : [];
+    result[key] = Array.isArray(raw[key]) ? raw[key].filter((item) => item && typeof item === 'object') : [];
   }
   result.customSections = (Array.isArray(raw.customSections) ? raw.customSections : [])
     .slice(0, 30)

@@ -1,5 +1,6 @@
 import PDFDocument from 'pdfkit';
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from 'docx';
+import { cleanExtractedProfile } from '../utils/profile-normalizer.js';
 
 const clean = (value) => (typeof value === 'string' ? value.trim() : '');
 const list = (value) => (Array.isArray(value) ? value.map(clean).filter(Boolean) : []);
@@ -8,30 +9,29 @@ function escapeHtml(value = '') {
   return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&#039;');
 }
 
-function extractSkillTokens(text = '') {
-  const tokens = new Set();
-  const matches = (text.match(/\b[A-Za-z][A-Za-z0-9+.#/-]{2,}\b/g) ?? []).map((value) => value.replace(/\.$/, ''));
-  for (const match of matches) {
-    if (['the', 'with', 'from', 'that', 'this', 'have', 'been', 'using', 'years', 'role'].includes(match.toLowerCase())) continue;
-    tokens.add(match);
-  }
-  return [...tokens].slice(0, 20);
-}
-
 export function buildTailoredCvContent({ fullName, chat, cvText = '', extractedProfile = {} }) {
   const analysis = chat?.analysis ?? {};
   const jobBreakdown = analysis.jobDescriptionBreakdown ?? {};
-  const profile = extractedProfile ?? {};
+  const profile = cleanExtractedProfile(extractedProfile ?? {});
   const roleTitle = clean(jobBreakdown.title) || clean(chat?.title) || 'Target Role';
-  const keywords = [...list(analysis.keywords), ...list(jobBreakdown.requiredSkills), ...list(jobBreakdown.preferredSkills), ...list(jobBreakdown.keywords)];
-  const skills = [...new Set([...list(profile.skills), ...keywords, ...extractSkillTokens(cvText)])].slice(0, 30);
+  // Job-description keywords guide the rewrite, but must never become claimed
+  // candidate skills unless they already exist in the verified extracted profile.
+  const profileSkills = list(profile.skills);
+  const profileSkillKeys = new Set(profileSkills.map((skill) => skill.toLocaleLowerCase()));
+  const verifiedKeywords = [
+    ...list(analysis.keywords),
+    ...list(jobBreakdown.requiredSkills),
+    ...list(jobBreakdown.preferredSkills),
+    ...list(jobBreakdown.keywords),
+  ].filter((keyword) => profileSkillKeys.has(keyword.toLocaleLowerCase()));
+  const skills = [...new Set([...profileSkills, ...verifiedKeywords])].slice(0, 30);
   const experience = Array.isArray(profile.experience) && profile.experience.length
     ? profile.experience.map((item) => ({
         title: clean(item.jobTitle) || 'Experience', company: clean(item.company), location: clean(item.location),
         dates: [clean(item.startDate), clean(item.endDate || (item.current ? 'Present' : ''))].filter(Boolean).join(' – '),
         description: clean(item.description), highlights: list(item.achievements),
       }))
-    : [{ title: roleTitle, company: '', location: '', dates: '', description: cvText.slice(0, 600).replace(/\s+/g, ' ').trim(), highlights: [] }];
+    : [];
 
   return {
     fullName: clean(profile.contact?.fullName) || clean(fullName) || 'Candidate', contact: profile.contact ?? {},
