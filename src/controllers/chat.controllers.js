@@ -109,7 +109,6 @@ export const createChat = async (req, res) => {
       sourceCvName: cv.name,
       sourceCvFileName: cv.fileName,
       messages: [
-        { role: 'user', text: trimmedJobDescription },
         { role: 'assistant', text: analysis.summary },
       ],
     });
@@ -191,7 +190,12 @@ export const rewriteChatCv = async (req, res) => {
     throw httpError(400, 'Finish the initial analysis before creating a rewritten CV.');
   }
 
-  const activeRewrite = (conversation.generatedCvVersions ?? []).find(
+  const existingVersions = conversation.generatedCvVersions ?? [];
+  if (existingVersions.length >= 3) {
+    throw httpError(409, 'Maximum of 3 rewritten CV versions reached.');
+  }
+
+  const activeRewrite = existingVersions.find(
     (version) => version.status === 'processing'
   );
   if (activeRewrite) {
