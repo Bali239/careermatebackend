@@ -4,7 +4,11 @@ import mongoose from 'mongoose';
 import { httpError } from '../utils/http-error.js';
 import { chatCreateSchema, chatEditSchema, chatMessageSchema } from '../schemas/chat.schema.js';
 import { analyzeCVForJobDescription } from '../services/chat-analysis.service.js';
-import { buildTailoredCvContent } from '../services/cv-rewrite.service.js';
+import {
+  buildTailoredCvContent,
+  createGeneratedDocumentBuffers,
+  renderTailoredCvHtml,
+} from '../services/cv-rewrite.service.js';
 
 const serializeChat = (chat) => ({
   id: String(chat._id),
@@ -209,7 +213,9 @@ export const rewriteChatCv = async (req, res) => {
     fullName: req.authUser.name || 'Candidate',
     chat: conversation.toObject ? conversation.toObject() : conversation,
     cvText,
+    extractedProfile: cv.extractedProfile ?? {},
   });
+  const draftHtml = renderTailoredCvHtml(content);
 
   const versionId = new mongoose.Types.ObjectId();
   const baseVersion = {
@@ -225,8 +231,42 @@ export const rewriteChatCv = async (req, res) => {
 
   conversation.generatedCvVersions ??= [];
   conversation.generatedCvVersions.push(baseVersion);
+  conversation.draftHtml = draftHtml;
+  conversation.isEditing = false;
   await conversation.save();
   return res.json({ status: 'ok', data: serializeChat(conversation.toObject()) });
+};
+
+export const downloadGeneratedCv = async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id) || !mongoose.isValidObjectId(req.params.versionId))
+    throw httpError(404, 'Generated CV not found');
+  if (!['docx', 'pdf'].includes(req.params.format)) throw httpError(400, 'Unsupported CV format');
+
+  const conversation = await Chat.findOne({ _id: req.params.id, userId: req.authUser._id });
+  if (!conversation) throw httpError(404, 'Conversation not found');
+  const version = conversation.generatedCvVersions?.id(req.params.versionId);
+  if (!version) throw httpError(404, 'Generated CV version not found');
+
+  const cv = await CV.findOne({ _id: conversation.cvId, userId: req.authUser._id })
+    .select('+data extractedProfile extractedText');
+  if (!cv) throw httpError(404, 'CV not found');
+  const content = buildTailoredCvContent({
+    fullName: req.authUser.name || 'Candidate',
+    chat: conversation.toObject ? conversation.toObject() : conversation,
+    cvText: cv.extractedText ?? '',
+    extractedProfile: cv.extractedProfile ?? {},
+  });
+  const buffers = await createGeneratedDocumentBuffers(content);
+  const isPdf = req.params.format === 'pdf';
+  const filename = isPdf ? version.pdfFileName : version.docxFileName;
+  res.set({
+    'Content-Type': isPdf
+      ? 'application/pdf'
+      : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    'Content-Length': String(buffers[req.params.format].length),
+  });
+  res.send(buffers[req.params.format]);
 };
 
 export const sendMessage = async (req, res) => {
