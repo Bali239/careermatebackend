@@ -2,9 +2,9 @@ import { ApiError, GoogleGenAI } from '@google/genai';
 import { env } from './env.js';
 
 export const GEMINI_MODELS = Object.freeze({
-  cvAnalysis: 'gemini-3.8-flash',
+  cvAnalysis: 'gemini-3.6-flash',
   cvAnalysisFallback: 'gemini-3.5-flash-lite',
-  cvProfileExtraction: 'gemini-3.8-flash',
+  cvProfileExtraction: 'gemini-3.6-flash',
   cvProfileExtractionFallback: 'gemini-3.5-flash-lite',
 });
 
